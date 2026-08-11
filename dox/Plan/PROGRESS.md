@@ -19,7 +19,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - In progress — Implement the real Area create/list/revision/event/audit/version/undo vertical slice. Rust integration test creates, updates, rejects a stale revision, undoes, reopens, and confirms persistence.
 - In progress — Implement localized application shell, overlays/containers, states, and Area UI in English LTR and Arabic RTL. The React test covers the empty state and dynamic RTL switch.
 - In progress — Run full verification and retain exit codes, counts, failures, skips, and platform limits. Typecheck/lint/test/fmt/Clippy are green; native build is compiling.
-- Pending — Review diff and secret/build-output exclusions, create small logical commits, and push `codex/full-app-foundation`.
+- Completed — Review diff and secret/build-output exclusions, create four small logical commits, and push `codex/full-app-foundation` to the authorized origin.
 
 ## Milestone status
 

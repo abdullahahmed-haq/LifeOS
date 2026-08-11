@@ -40,7 +40,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 
 - Completed — Stable Rust `1.97.1`, Cargo `1.97.1`, Clang, and the Apple SDK are installed and available for local native verification.
 - Blocked — Pixel-level visual comparison against UI V001 is impossible because the referenced UI implementation/screens are absent. Foundation work continues from the DOX visual contract; this does not block functional delivery.
-- In progress — `pnpm tauri build` on the local macOS ARM64 host. Two concurrent release builds are still compiling after a terminal-wrapper retry; final evidence will be captured only after they finish.
+- Completed — `pnpm tauri build` produced a macOS ARM64 `LifeOS.app` and `LifeOS_0.1.0_aarch64.dmg`. The bundle plist identifies `lifeos-desktop` as `CFBundleExecutable`; the final DMG SHA-256 was `dde699a0ed99b7795d91fa4c6fdb5b327baa16ea6faf8ed2a087be04f5c99f9b`. A later rebuild after licensing content again produced the correct app executable; the local Tauri DMG helper left an intermediate writable image, so the already verified final DMG is retained as build evidence and release automation needs a clean-host repeat.
 - Completed — Verify El Messiri's SIL OFL 1.1 license and copy the supplied UI V001 font byte-for-byte with a source/checksum manifest.
 - Blocked — Windows and macOS Intel build/runtime evidence requires CI runners not present on this ARM64 host; CI configuration will be added and local limitations reported.
 - Blocked — Release signing/notarization and updater publication require external certificates/keys/endpoints; development packaging can proceed without publishing.

@@ -1,1 +1,24 @@
-{ "name": "@lifeos/contracts", "private": true, "version": "0.1.0", "type": "module", "exports": { "./bindings": "./src/bindings.ts" }, "scripts": { "typecheck": "tsc --noEmit", "lint": "eslint src", "test": "vitest run --passWithNoTests" }, "dependencies": { "@tauri-apps/api": "2.11.1" }, "devDependencies": { "@eslint/js": "10.0.0", "typescript": "5.9.3", "typescript-eslint": "8.67.0", "eslint": "10.8.1", "vitest": "4.1.10" } }
+{
+  "name": "@lifeos/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./bindings": "./src/bindings.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.67.0",
+    "eslint": "10.8.1",
+    "vitest": "4.1.10"
+  }
+}

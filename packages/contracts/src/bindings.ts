@@ -33,15 +33,15 @@ export type AppError = { code: "VALIDATION"; details: {
 	field: string,
 	reason: string,
 } } | { code: "NOT_FOUND"; details: {
-	entity_id: string,
+	entityId: string,
 } } | { code: "CONFLICT_REVISION"; details: {
-	entity_id: string,
+	entityId: string,
 	expected: number,
 	actual: number,
 } } | { code: "INTEGRITY_FAILURE"; details: {
 	reason: string,
 } } | { code: "INTERNAL"; details: {
-	operation_id: string,
+	operationId: string,
 } };
 
 export type Area = {

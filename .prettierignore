@@ -1,0 +1,12 @@
+target/
+**/dist/
+**/node_modules/
+apps/desktop/src-tauri/gen/
+packages/contracts/src/bindings.ts
+spikes/typed-ipc/taurpc-probe/generated.ts
+pnpm-lock.yaml
+Cargo.lock
+**/*.ttf
+**/*.png
+**/*.icns
+**/*.ico

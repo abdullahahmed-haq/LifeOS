@@ -1,1 +1,7 @@
-{ "$schema": "../gen/schemas/desktop-schema.json", "identifier": "main", "description": "Main LifeOS desktop window.", "windows": ["main"], "permissions": ["core:default"] }
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Main LifeOS desktop window; only typed application commands and progress-event listening are permitted.",
+  "windows": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

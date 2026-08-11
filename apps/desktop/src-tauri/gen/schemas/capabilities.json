@@ -1,1 +1,1 @@
-{"main":{"identifier":"main","description":"Main LifeOS desktop window.","local":true,"windows":["main"],"permissions":["core:default"]}}
+{"main":{"identifier":"main","description":"Main LifeOS desktop window; only typed application commands and progress-event listening are permitted.","local":true,"windows":["main"],"permissions":["core:event:allow-listen","core:event:allow-unlisten"]}}

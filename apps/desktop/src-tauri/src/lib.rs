@@ -110,32 +110,34 @@ pub fn export_bindings(
     Ok(())
 }
 
-pub fn run() {
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let ipc = ipc_builder();
     #[cfg(debug_assertions)]
     export_bindings(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../packages/contracts/src/bindings.ts"),
-    )
-    .expect("generate contracts");
+    )?;
     let event_ipc = ipc.clone();
     tauri::Builder::default()
         .setup(move |app| {
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("application data directory");
-            fs::create_dir_all(&data_dir).expect("application data directory exists");
-            let database = std::env::var_os("LIFEOS_DEV_DATABASE")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| data_dir.join("lifeos.db"));
+            let data_dir = app.path().app_data_dir()?;
+            fs::create_dir_all(&data_dir)?;
+            let database = database_path(data_dir);
             app.manage(AppState {
-                core: ApplicationCore::open(database).expect("open LifeOS database"),
+                core: ApplicationCore::open(database)?,
             });
             event_ipc.mount_events(app);
             Ok(())
         })
         .invoke_handler(ipc.invoke_handler())
-        .run(tauri::generate_context!())
-        .expect("run LifeOS");
+        .run(tauri::generate_context!())?;
+    Ok(())
+}
+
+fn database_path(data_dir: PathBuf) -> PathBuf {
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("LIFEOS_DEV_DATABASE") {
+        return PathBuf::from(path);
+    }
+    data_dir.join("lifeos.db")
 }

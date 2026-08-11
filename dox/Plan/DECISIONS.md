@@ -4,6 +4,24 @@ Date: 2026-08-11
 
 This file records difficult, surprising, security-sensitive, or hard-to-reverse choices. Reversible implementation details stay in code and tests.
 
+## D-026 — V0.1 scope and F0 completion boundary
+
+Status: accepted
+
+LifeOS now treats the complete documented V0.1 product as the delivery target: all local-first organization, planning, knowledge, safety, Obsidian, optional AI, MCP, bilingual UX, and signed-installer architecture. V0.2+ external integrations, cloud/device sync, accounts, collaboration, mobile, and public plugins remain outside the dependency graph. M1/M2 evidence is retained as a delivered foundation baseline, while their missing reusable capabilities are tracked and completed in a new F0 wave before feature-scale milestones.
+
+## D-027 — Canonical presentation settings
+
+Status: accepted for F0
+
+Locale, theme, timezone, and week-start preferences are canonical workspace settings held by Rust Core in append-only migration 2 and protected by optimistic revisions. The renderer uses a tiny versioned `localStorage` mirror for locale/theme only, solely to set `lang`, `dir`, and resolved color mode before the first paint; it contains no secrets or entity data. Core hydration wins after startup, and every persisted change creates a domain event and audit event. Theme values are `light`, `dark`, or `system`; the renderer stores a resolved `data-theme` separately from that preference.
+
+## D-028 — F0 route migration
+
+Status: accepted for F0
+
+TanStack Router is now the renderer's navigation authority. The Area page remains the root route to preserve the current runnable flow while Home, Today, Projects, Settings, and integration entry points are routable typed surfaces. Route placeholders are explicitly in-progress and do not count as feature delivery. New screens must be implemented as route-level domain slices rather than extending a single application file.
+
 ## D-019 — Verified JavaScript toolchain pin
 
 The running development host is Node `24.14.0` and pnpm `11.16.0`. Pin those exact versions in `.node-version` and `package.json` rather than retaining a stale Node 22 observation that causes every package command to warn. CI uses the same declared versions. Reassess this pin before a supported-platform release.

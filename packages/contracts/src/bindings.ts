@@ -6,6 +6,8 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	coreHealth: () => typedError<HealthSnapshot, AppError>(__TAURI_INVOKE("core_health")),
+	appSettings: () => typedError<AppSettings, AppError>(__TAURI_INVOKE("app_settings")),
+	updateAppSettings: (request: UpdateAppSettingsRequest) => typedError<ActionReceipt<AppSettings>, AppError>(__TAURI_INVOKE("update_app_settings", { request })),
 	listAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_areas")),
 	createArea: (request: CreateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("create_area", { request })),
 	updateArea: (request: UpdateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("update_area", { request })),
@@ -40,9 +42,21 @@ export type AppError = { code: "VALIDATION"; details: {
 	actual: number,
 } } | { code: "INTEGRITY_FAILURE"; details: {
 	reason: string,
+} } | { code: "PERMISSION_DENIED"; details: {
+	operation: string,
+} } | { code: "UNAVAILABLE"; details: {
+	service: string,
 } } | { code: "INTERNAL"; details: {
 	operationId: string,
 } };
+
+export type AppSettings = {
+	locale: string,
+	theme: ThemePreference,
+	timezone: string,
+	weekStartsOn: number,
+	revision: number,
+};
 
 export type Area = {
 	id: string,
@@ -85,6 +99,8 @@ export type SearchResult = {
 	score: number | null,
 };
 
+export type ThemePreference = "light" | "dark" | "system";
+
 export type UndoRequest = {
 	undoBatchId: string,
 	operationId: string,
@@ -94,6 +110,15 @@ export type UndoResult = {
 	undoneUndoBatchId: string,
 	entityId: string,
 	revision: number,
+};
+
+export type UpdateAppSettingsRequest = {
+	locale: string,
+	theme: ThemePreference,
+	timezone: string,
+	weekStartsOn: number,
+	expectedRevision: number,
+	operationId: string,
 };
 
 export type UpdateAreaRequest = {

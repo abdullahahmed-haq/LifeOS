@@ -7,6 +7,36 @@
   font-family: ElMessiri, system-ui, sans-serif;
   color: #24313b;
   background: #dfe6e9;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color: #e9f1f2;
+  background: #17232b;
+  color-scheme: dark;
+}
+:root[data-theme="dark"] .workspace,
+:root[data-theme="dark"] .modal {
+  background: #1f2d35;
+  color: #e9f1f2;
+}
+:root[data-theme="dark"] .topbar {
+  border-color: #42545b;
+}
+:root[data-theme="dark"] .area-card,
+:root[data-theme="dark"] .empty,
+:root[data-theme="dark"] .topbar button,
+:root[data-theme="dark"] .locale,
+:root[data-theme="dark"] .theme-toggle,
+:root[data-theme="dark"] .modal button {
+  background: #2b3c45;
+  color: #edf5f5;
+}
+:root[data-theme="dark"] .create-card {
+  background: #294346;
+}
+:root[data-theme="dark"] .page-heading p,
+:root[data-theme="dark"] .area-card small {
+  color: #b9c8ca;
 }
 * {
   box-sizing: border-box;
@@ -49,6 +79,11 @@ body {
 .locale {
   margin-top: auto;
 }
+.presentation-controls {
+  margin-top: auto;
+  display: grid;
+  gap: 8px;
+}
 .workspace {
   background: #f7f2e9;
   border-start-start-radius: 30px;
@@ -62,6 +97,7 @@ body {
 }
 .topbar button,
 .locale,
+.theme-toggle,
 .create-card button,
 .undo-toast button,
 .modal button {
@@ -145,6 +181,9 @@ body {
   border-radius: 19px;
   padding: 24px;
   box-shadow: 0 8px 24px #38454c12;
+}
+.feature-status {
+  max-width: 720px;
 }
 .area-card span {
   font-size: 12px;

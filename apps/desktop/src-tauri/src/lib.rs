@@ -2,8 +2,8 @@ use std::{fs, path::PathBuf};
 
 use lifeos_core::ApplicationCore;
 use lifeos_domain::{
-    ActionReceipt, AppError, Area, CreateAreaRequest, HealthSnapshot, SearchRequest, SearchResult,
-    UndoRequest, UndoResult, UpdateAreaRequest,
+    ActionReceipt, AppError, AppSettings, Area, CreateAreaRequest, HealthSnapshot, SearchRequest,
+    SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -25,6 +25,19 @@ pub struct FoundationProgress {
 #[specta::specta]
 fn core_health(state: State<'_, AppState>) -> Result<HealthSnapshot, AppError> {
     state.core.health()
+}
+#[tauri::command]
+#[specta::specta]
+fn app_settings(state: State<'_, AppState>) -> Result<AppSettings, AppError> {
+    state.core.app_settings()
+}
+#[tauri::command]
+#[specta::specta]
+fn update_app_settings(
+    state: State<'_, AppState>,
+    request: UpdateAppSettingsRequest,
+) -> Result<ActionReceipt<AppSettings>, AppError> {
+    state.core.update_app_settings(request)
 }
 #[tauri::command]
 #[specta::specta]
@@ -93,6 +106,8 @@ fn ipc_builder() -> Builder<tauri::Wry> {
     Builder::new()
         .commands(collect_commands![
             core_health,
+            app_settings,
+            update_app_settings,
             list_areas,
             create_area,
             update_area,

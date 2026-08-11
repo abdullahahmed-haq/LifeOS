@@ -6,6 +6,8 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 
 ## Current delivery
 
+- In progress — F0 Foundation completion: added append-only migration 2 for canonical settings, policy/job/cursor persistence foundations, typed settings IPC, first-paint locale/theme bootstrap, real typed routes, and a refactored Area route. Native credential storage, generic lifecycle safety, full route registry, and Windows evidence remain pending.
+
 - Completed — Read all 12 DOX source contracts and inventory their product, data, architecture, security, UX, i18n, test, and delivery requirements.
 - Completed — Recursively inspect UI V001. It contains only the El Messiri font and an empty `ui install.md`; no implementation/screens/assets are available.
 - Completed — Inspect Full App and Git/GitHub state. Full App was empty; the required remote has no branches/tags/history and was cloned directly into this directory.
@@ -26,6 +28,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - Completed — M0 Reference and repository baseline.
 - Completed — M1 Desktop, locale, and persistence foundation.
 - Completed — M2 Entity/safety spine and Area vertical slice.
+- In progress — F0 Foundation completion and architecture hardening.
 - Pending — M3 Projects, tasks, goals, and relations.
 - Pending — M4 Today, calendar, habits, people/requests, events, and focus.
 - Pending — M5 Progress, Home, reports, and reviews.
@@ -47,6 +50,8 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - Blocked — One corrupt writable HFS image from an earlier local DMG attempt remains stuck at `/dev/disk6` with an I/O-error mount; macOS refuses normal and forced detach. It is under ignored `target/` output and requires a host restart to clear. CI-mode packaging bypassed Finder interaction and produced a verified final DMG despite this host-only condition.
 
 ## Evidence log
+
+- F0 settings/routing slice verification: `pnpm contracts:check`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, `pnpm build`, `cargo fmt --check`, and Clippy with warnings denied passed. JavaScript tests: 4 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 13 passed, 0 failed. `CI=true pnpm tauri build` produced a fresh macOS ARM64 DMG; strict code-sign verification passed and its SHA-256 is `7050712f141420003a6602e7aa94d244938e19eec06d7d2b4e81e784c3af6175`.
 
 - Source counts: DOX 12 files / approximately 352 KiB; UI V001 2 files / approximately 140 KiB; Full App initially empty.
 - Git: `origin=https://github.com/abdullahahmed-haq/LifeOS.git`; remote initially empty; GitHub CLI authenticated as `abdullahahmed-haq`.

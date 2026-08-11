@@ -1,12 +1,18 @@
 # LifeOS implementation plan
 
-Status: reviewed implementation baseline  
+Status: V0.1 implementation roadmap; F0 in progress
 Date: 2026-08-11  
-Delivery target for this workstream: repository foundation, mandatory Spikes A-C, and the first real Area vertical slice
+Delivery target: complete V0.1 desktop application through M11
 
 ## 1. Product requirements summary
 
 LifeOS is a local-first, single-user-first desktop personal operating system for Windows and macOS. Its two primary outcomes are to make the next useful action obvious and make real progress visible. V0.1 ultimately covers planning, nested projects/tasks, progress, focus, reviews, knowledge, safe Obsidian synchronization, optional AI, MCP, extension points, backup/export, and English/Arabic parity.
+
+## V0.1 execution extension
+
+The foundation work is preserved, but it is no longer the delivery boundary. The committed plan is now F0 followed by M3–M11: foundation completion; organization/hierarchy/relations; planning/calendar/focus; progress/Home/reviews; knowledge/customization/automation/data management; Obsidian; controlled AI; AI intelligence; MCP; and release hardening. The definitive requirements and acceptance gates are the complete V0.1 plan approved on 2026-08-11, with DOX remaining the behavior/security authority.
+
+F0 starts by preserving migration 1 and adding small append-only migrations for canonical settings, permission-policy storage, durable jobs, and consumer cursors. It then replaces the single-screen renderer with typed routing, canonical settings hydration, locale/theme pre-paint bootstrap, a reusable shell, and route-level feature placeholders. All subsequent slices must cross the same ApplicationCore, event/audit/version/undo, generated-contract, bilingual UI, test, and evidence seams.
 
 The implementation contract is stricter than a screen prototype:
 

@@ -1,8 +1,9 @@
 use std::{path::Path, sync::Mutex};
 
 use lifeos_domain::{
-    ActionReceipt, AppError, Area, AreaVersion, CONTRACT_VERSION, CreateAreaRequest,
-    HealthSnapshot, SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAreaRequest,
+    ActionReceipt, AppError, AppSettings, Area, AreaVersion, CONTRACT_VERSION, CreateAreaRequest,
+    HealthSnapshot, SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
+    UpdateAreaRequest,
 };
 use lifeos_store::EntityStore;
 
@@ -18,6 +19,29 @@ impl ApplicationCore {
     }
     pub fn health(&self) -> Result<HealthSnapshot, AppError> {
         self.store.lock().map_err(|_| internal())?.health()
+    }
+    pub fn app_settings(&self) -> Result<AppSettings, AppError> {
+        self.store.lock().map_err(|_| internal())?.app_settings()
+    }
+    pub fn update_app_settings(
+        &self,
+        request: UpdateAppSettingsRequest,
+    ) -> Result<ActionReceipt<AppSettings>, AppError> {
+        lifeos_domain::validate_settings(&request)?;
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .update_app_settings(
+                AppSettings {
+                    locale: request.locale,
+                    theme: request.theme,
+                    timezone: request.timezone,
+                    week_starts_on: request.week_starts_on,
+                    revision: request.expected_revision + 1,
+                },
+                request.expected_revision,
+                operation_id(request.operation_id),
+            )
     }
     pub fn list_areas(&self) -> Result<Vec<Area>, AppError> {
         self.store.lock().map_err(|_| internal())?.list_areas()
@@ -250,5 +274,24 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].title, "Project");
         assert!(results[0].score < results[1].score);
+    }
+
+    #[test]
+    fn persists_canonical_settings_through_the_core_interface() {
+        let directory = tempdir().unwrap();
+        let core = ApplicationCore::open(directory.path().join("settings.db")).unwrap();
+        let initial = core.app_settings().unwrap();
+        let updated = core
+            .update_app_settings(UpdateAppSettingsRequest {
+                locale: "ar".into(),
+                theme: lifeos_domain::ThemePreference::Dark,
+                timezone: "Asia/Riyadh".into(),
+                week_starts_on: 0,
+                expected_revision: initial.revision,
+                operation_id: "settings-core".into(),
+            })
+            .unwrap();
+        assert_eq!(updated.data.locale, "ar");
+        assert_eq!(updated.data.revision, initial.revision + 1);
     }
 }

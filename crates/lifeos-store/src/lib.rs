@@ -5,8 +5,9 @@ use std::{
 };
 
 use lifeos_domain::{
-    AREA_TYPE_ID, ActionReceipt, AppError, Area, AreaVersion, DEFAULT_DEVICE_ID, DEFAULT_USER_ID,
-    DEFAULT_WORKSPACE_ID, EntityRevision, HealthSnapshot, SearchResult, UndoResult,
+    AREA_TYPE_ID, ActionReceipt, AppError, AppSettings, Area, AreaVersion, DEFAULT_DEVICE_ID,
+    DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, EntityRevision, HealthSnapshot, SearchResult,
+    ThemePreference, UndoResult,
 };
 use lifeos_search::{fts_query, normalize_for_search};
 use rusqlite::{
@@ -36,7 +37,52 @@ INSERT INTO devices VALUES ('00000000-0000-7000-8000-000000000003','00000000-000
 INSERT INTO entity_type_definitions VALUES ('00000000-0000-7000-8000-000000000004','00000000-0000-7000-8000-000000000001','area','core','Area','مجال','Area',0,0);
 "#;
 
-const MIGRATIONS: &[(i32, &str)] = &[(1, INITIAL_SCHEMA)];
+const FOUNDATION_SETTINGS_SCHEMA: &str = r#"
+CREATE TABLE app_settings (
+  workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id),
+  locale TEXT NOT NULL CHECK(locale IN ('en','ar')),
+  theme TEXT NOT NULL CHECK(theme IN ('light','dark','system')),
+  timezone TEXT NOT NULL,
+  week_starts_on INTEGER NOT NULL CHECK(week_starts_on BETWEEN 0 AND 6),
+  revision INTEGER NOT NULL CHECK(revision >= 1),
+  updated_at INTEGER NOT NULL
+);
+INSERT INTO app_settings VALUES ('00000000-0000-7000-8000-000000000001','en','system','Africa/Cairo',1,1,0);
+CREATE TABLE permission_policies (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+  subject_kind TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  decision TEXT NOT NULL CHECK(decision IN ('allow','ask','deny')),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(workspace_id, subject_kind, operation)
+);
+CREATE TABLE background_jobs (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+  kind TEXT NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('queued','running','succeeded','failed','cancelled')),
+  payload_json TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+  available_at INTEGER NOT NULL,
+  started_at INTEGER,
+  completed_at INTEGER,
+  last_error_code TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX background_jobs_ready_idx ON background_jobs(workspace_id,state,available_at);
+CREATE TABLE consumer_cursors (
+  consumer_key TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+  last_domain_event_sequence INTEGER NOT NULL DEFAULT 0 CHECK(last_domain_event_sequence >= 0),
+  updated_at INTEGER NOT NULL
+);
+"#;
+
+const MIGRATIONS: &[(i32, &str)] = &[(1, INITIAL_SCHEMA), (2, FOUNDATION_SETTINGS_SCHEMA)];
 
 pub struct EntityStore {
     connection: Connection,
@@ -80,6 +126,99 @@ impl EntityStore {
                 .query_row("PRAGMA foreign_keys", [], |r| r.get::<_, i32>(0))
                 .map_err(internal)?
                 == 1,
+        })
+    }
+
+    pub fn app_settings(&self) -> Result<AppSettings, AppError> {
+        self.connection
+            .query_row(
+                "SELECT locale,theme,timezone,week_starts_on,revision FROM app_settings WHERE workspace_id=?1",
+                [DEFAULT_WORKSPACE_ID],
+                row_settings,
+            )
+            .map_err(internal)
+    }
+
+    pub fn update_app_settings(
+        &mut self,
+        next: AppSettings,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<AppSettings>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let current = tx
+            .query_row(
+                "SELECT locale,theme,timezone,week_starts_on,revision FROM app_settings WHERE workspace_id=?1",
+                [DEFAULT_WORKSPACE_ID],
+                row_settings,
+            )
+            .map_err(internal)?;
+        if current.revision != expected_revision {
+            return Err(AppError::ConflictRevision {
+                entity_id: "app-settings".into(),
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        let now = now();
+        let changed = tx
+            .execute(
+                "UPDATE app_settings SET locale=?1,theme=?2,timezone=?3,week_starts_on=?4,revision=?5,updated_at=?6 WHERE workspace_id=?7 AND revision=?8",
+                params![
+                    next.locale,
+                    theme_key(&next.theme),
+                    next.timezone,
+                    next.week_starts_on,
+                    next.revision,
+                    now,
+                    DEFAULT_WORKSPACE_ID,
+                    expected_revision
+                ],
+            )
+            .map_err(internal)?;
+        if changed != 1 {
+            return Err(AppError::ConflictRevision {
+                entity_id: "app-settings".into(),
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        let event_id = Uuid::now_v7().to_string();
+        tx.execute(
+            "INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,'settings.updated',NULL,?3,?4,'user',?5,?6,?7)",
+            params![
+                event_id,
+                DEFAULT_WORKSPACE_ID,
+                next.revision,
+                serde_json::json!({"locale": next.locale, "theme": theme_key(&next.theme)}).to_string(),
+                DEFAULT_USER_ID,
+                operation_id,
+                now
+            ],
+        )
+        .map_err(internal)?;
+        tx.execute(
+            "INSERT INTO audit_events VALUES (?1,?2,'settings.update','user',?3,'[]',?4,NULL,?5)",
+            params![
+                Uuid::now_v7().to_string(),
+                DEFAULT_WORKSPACE_ID,
+                DEFAULT_USER_ID,
+                operation_id,
+                now
+            ],
+        )
+        .map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(ActionReceipt {
+            data: next,
+            operation_id,
+            affected_entity_ids: vec![],
+            resulting_revisions: vec![],
+            domain_event_ids: vec![event_id],
+            undo_batch_id: None,
         })
     }
 
@@ -498,6 +637,37 @@ fn write_history(
     Ok(())
 }
 
+fn row_settings(row: &rusqlite::Row<'_>) -> rusqlite::Result<AppSettings> {
+    let theme: String = row.get(1)?;
+    let theme = match theme.as_str() {
+        "light" => ThemePreference::Light,
+        "dark" => ThemePreference::Dark,
+        "system" => ThemePreference::System,
+        _ => {
+            return Err(rusqlite::Error::InvalidColumnType(
+                1,
+                "theme".into(),
+                rusqlite::types::Type::Text,
+            ));
+        }
+    };
+    Ok(AppSettings {
+        locale: row.get(0)?,
+        theme,
+        timezone: row.get(2)?,
+        week_starts_on: row.get(3)?,
+        revision: row.get(4)?,
+    })
+}
+
+fn theme_key(theme: &ThemePreference) -> &'static str {
+    match theme {
+        ThemePreference::Light => "light",
+        ThemePreference::Dark => "dark",
+        ThemePreference::System => "system",
+    }
+}
+
 fn write_version(
     tx: &rusqlite::Transaction<'_>,
     area: &Area,
@@ -712,7 +882,7 @@ mod tests {
         }
 
         let store = EntityStore::open(&path).unwrap();
-        assert_eq!(store.health().unwrap().schema_version, 1);
+        assert_eq!(store.health().unwrap().schema_version, 2);
         assert!(store.integrity_check().unwrap());
     }
 
@@ -733,5 +903,38 @@ mod tests {
             EntityStore::open(&path),
             Err(AppError::IntegrityFailure { reason }) if reason == "migration checksum mismatch"
         ));
+    }
+
+    #[test]
+    fn persists_settings_with_revision_and_audit_history() {
+        let dir = tempdir().unwrap();
+        let mut store = EntityStore::open(dir.path().join("settings.db")).unwrap();
+        let initial = store.app_settings().unwrap();
+        assert_eq!(initial.locale, "en");
+        let next = AppSettings {
+            locale: "ar".into(),
+            theme: ThemePreference::Dark,
+            timezone: "Asia/Riyadh".into(),
+            week_starts_on: 0,
+            revision: initial.revision + 1,
+        };
+        let receipt = store
+            .update_app_settings(next.clone(), initial.revision, "settings-1".into())
+            .unwrap();
+        assert_eq!(receipt.data, next);
+        assert!(matches!(
+            store.update_app_settings(next, initial.revision, "settings-stale".into()),
+            Err(AppError::ConflictRevision { .. })
+        ));
+        assert_eq!(store.app_settings().unwrap().locale, "ar");
+        let audit_count: i64 = store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM audit_events WHERE action_key='settings.update'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(audit_count, 1);
     }
 }

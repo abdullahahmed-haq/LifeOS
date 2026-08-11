@@ -3,12 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  appSettings: vi.fn(),
   listAreas: vi.fn(),
   createArea: vi.fn(),
 }));
 
 vi.mock("@lifeos/contracts/bindings", () => ({
   commands: {
+    appSettings: mocks.appSettings,
+    updateAppSettings: vi.fn(),
     listAreas: mocks.listAreas,
     createArea: mocks.createArea,
     undoAction: vi.fn(),
@@ -21,6 +24,16 @@ describe("LifeOS application shell", () => {
   afterEach(() => cleanup());
   beforeEach(() => {
     localStorage.clear();
+    mocks.appSettings.mockResolvedValue({
+      status: "ok",
+      data: {
+        locale: "en",
+        theme: "system",
+        timezone: "Africa/Cairo",
+        weekStartsOn: 1,
+        revision: 1,
+      },
+    });
     mocks.listAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.createArea.mockReset();
   });

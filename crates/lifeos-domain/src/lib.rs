@@ -7,6 +7,35 @@ pub const DEFAULT_USER_ID: &str = "00000000-0000-7000-8000-000000000002";
 pub const DEFAULT_DEVICE_ID: &str = "00000000-0000-7000-8000-000000000003";
 pub const AREA_TYPE_ID: &str = "00000000-0000-7000-8000-000000000004";
 
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemePreference {
+    Light,
+    Dark,
+    System,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub locale: String,
+    pub theme: ThemePreference,
+    pub timezone: String,
+    pub week_starts_on: u8,
+    pub revision: i32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAppSettingsRequest {
+    pub locale: String,
+    pub theme: ThemePreference,
+    pub timezone: String,
+    pub week_starts_on: u8,
+    pub expected_revision: i32,
+    pub operation_id: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Area {
@@ -122,6 +151,12 @@ pub enum AppError {
     IntegrityFailure {
         reason: String,
     },
+    PermissionDenied {
+        operation: String,
+    },
+    Unavailable {
+        service: String,
+    },
     Internal {
         operation_id: String,
     },
@@ -146,6 +181,28 @@ pub fn validate_title(value: &str) -> Result<String, AppError> {
     Ok(title.to_owned())
 }
 
+pub fn validate_settings(request: &UpdateAppSettingsRequest) -> Result<(), AppError> {
+    if !matches!(request.locale.as_str(), "en" | "ar") {
+        return Err(AppError::Validation {
+            field: "locale".into(),
+            reason: "must be a supported locale".into(),
+        });
+    }
+    if request.timezone.trim().is_empty() || request.timezone.len() > 100 {
+        return Err(AppError::Validation {
+            field: "timezone".into(),
+            reason: "must be a valid configured timezone identifier".into(),
+        });
+    }
+    if request.week_starts_on > 6 {
+        return Err(AppError::Validation {
+            field: "weekStartsOn".into(),
+            reason: "must be between 0 and 6".into(),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,5 +222,27 @@ mod tests {
                 "details": { "entityId": "area-1", "expected": 2, "actual": 3 }
             })
         );
+    }
+
+    #[test]
+    fn settings_reject_unsupported_locale_and_week_start() {
+        let mut request = UpdateAppSettingsRequest {
+            locale: "fr".into(),
+            theme: ThemePreference::System,
+            timezone: "Africa/Cairo".into(),
+            week_starts_on: 1,
+            expected_revision: 1,
+            operation_id: "settings-test".into(),
+        };
+        assert!(matches!(
+            validate_settings(&request),
+            Err(AppError::Validation { .. })
+        ));
+        request.locale = "en".into();
+        request.week_starts_on = 7;
+        assert!(matches!(
+            validate_settings(&request),
+            Err(AppError::Validation { .. })
+        ));
     }
 }

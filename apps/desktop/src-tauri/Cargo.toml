@@ -1,0 +1,32 @@
+[package]
+name = "lifeos-desktop"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+default-run = "lifeos-desktop"
+
+[features]
+binding-generation = []
+
+[[bin]]
+name = "generate_bindings"
+path = "src/bin/generate_bindings.rs"
+required-features = ["binding-generation"]
+
+[lib]
+name = "lifeos_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+lifeos-core = { path = "../../../crates/lifeos-core" }
+lifeos-domain = { path = "../../../crates/lifeos-domain" }
+serde.workspace = true
+specta.workspace = true
+tauri = { version = "2.11.5", features = [] }
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+specta-typescript = "0.0.12"

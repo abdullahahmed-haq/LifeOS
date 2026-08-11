@@ -1850,6 +1850,7 @@ version = "0.1.0"
 dependencies = [
  "lifeos-domain",
  "lifeos-store",
+ "tempfile",
  "uuid",
 ]
 
@@ -1872,6 +1873,7 @@ name = "lifeos-domain"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "specta",
  "uuid",
 ]

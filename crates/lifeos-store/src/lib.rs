@@ -1,14 +1,17 @@
 use std::{
+    fs::OpenOptions,
     path::Path,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use lifeos_domain::{
-    AREA_TYPE_ID, ActionReceipt, AppError, Area, DEFAULT_DEVICE_ID, DEFAULT_USER_ID,
+    AREA_TYPE_ID, ActionReceipt, AppError, Area, AreaVersion, DEFAULT_DEVICE_ID, DEFAULT_USER_ID,
     DEFAULT_WORKSPACE_ID, EntityRevision, HealthSnapshot, SearchResult, UndoResult,
 };
 use lifeos_search::{fts_query, normalize_for_search};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, backup::Backup, params};
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension, TransactionBehavior, backup::Backup, params,
+};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -32,6 +35,8 @@ INSERT INTO users VALUES ('00000000-0000-7000-8000-000000000002','00000000-0000-
 INSERT INTO devices VALUES ('00000000-0000-7000-8000-000000000003','00000000-0000-7000-8000-000000000001','This device','desktop','local-install',0,0);
 INSERT INTO entity_type_definitions VALUES ('00000000-0000-7000-8000-000000000004','00000000-0000-7000-8000-000000000001','area','core','Area','مجال','Area',0,0);
 "#;
+
+const MIGRATIONS: &[(i32, &str)] = &[(1, INITIAL_SCHEMA)];
 
 pub struct EntityStore {
     connection: Connection,
@@ -161,7 +166,11 @@ impl EntityStore {
         expected: i32,
         operation_id: String,
     ) -> Result<ActionReceipt<Area>, AppError> {
-        let current = self.get_area(&id)?.ok_or(AppError::NotFound {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let current = get_area_in_transaction(&tx, &id)?.ok_or(AppError::NotFound {
             entity_id: id.clone(),
         })?;
         if current.revision != expected {
@@ -181,11 +190,14 @@ impl EntityStore {
         };
         let undo_batch_id = Uuid::now_v7().to_string();
         let event_id = Uuid::now_v7().to_string();
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(internal)?;
-        tx.execute("UPDATE entities SET title=?1,updated_at=?2,revision=?3,updated_by_type='user',updated_by_id=?4 WHERE id=?5 AND revision=?6", params![next.title,now,next.revision,DEFAULT_USER_ID,next.id,current.revision]).map_err(internal)?;
+        let updated = tx.execute("UPDATE entities SET title=?1,updated_at=?2,revision=?3,updated_by_type='user',updated_by_id=?4 WHERE id=?5 AND revision=?6", params![next.title,now,next.revision,DEFAULT_USER_ID,next.id,current.revision]).map_err(internal)?;
+        if updated != 1 {
+            return Err(AppError::ConflictRevision {
+                entity_id: next.id,
+                expected,
+                actual: current.revision,
+            });
+        }
         tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&next.id])
             .map_err(internal)?;
         tx.execute(
@@ -227,9 +239,12 @@ impl EntityStore {
         batch: String,
         operation_id: String,
     ) -> Result<ActionReceipt<UndoResult>, AppError> {
-        let payload: String = self.connection.query_row("SELECT payload_json FROM undo_operations WHERE undo_batch_id=?1 ORDER BY ordinal LIMIT 1", [&batch], |r| r.get(0)).optional().map_err(internal)?.ok_or(AppError::NotFound { entity_id: batch.clone() })?;
-        let available: String = self
+        let tx = self
             .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let payload: String = tx.query_row("SELECT payload_json FROM undo_operations WHERE undo_batch_id=?1 ORDER BY ordinal LIMIT 1", [&batch], |r| r.get(0)).optional().map_err(internal)?.ok_or(AppError::NotFound { entity_id: batch.clone() })?;
+        let available: String = tx
             .query_row(
                 "SELECT status FROM undo_batches WHERE id=?1",
                 [&batch],
@@ -255,7 +270,7 @@ impl EntityStore {
                 .ok_or_else(|| AppError::IntegrityFailure {
                     reason: "invalid undo revision".into(),
                 })? as i32;
-        let current = self.get_area(&id)?.ok_or(AppError::NotFound {
+        let current = get_area_in_transaction(&tx, &id)?.ok_or(AppError::NotFound {
             entity_id: id.clone(),
         })?;
         if current.revision != expected {
@@ -268,16 +283,19 @@ impl EntityStore {
         let now = now();
         let revision = expected + 1;
         let event_id = Uuid::now_v7().to_string();
-        let tx = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(internal)?;
-        if let Some(title) = value["title"].as_str() {
-            tx.execute(
-                "UPDATE entities SET title=?1,updated_at=?2,revision=?3 WHERE id=?4",
-                params![title, now, revision, id],
-            )
-            .map_err(internal)?;
+        let restored_title = value["title"].as_str();
+        let changed_fields = if restored_title.is_some() {
+            "[\"title\"]"
+        } else {
+            "[\"deletedAt\"]"
+        };
+        let updated = if let Some(title) = restored_title {
+            let updated = tx
+                .execute(
+                    "UPDATE entities SET title=?1,updated_at=?2,revision=?3,updated_by_type='user',updated_by_id=?4 WHERE id=?5 AND revision=?6",
+                    params![title, now, revision, DEFAULT_USER_ID, id, expected],
+                )
+                .map_err(internal)?;
             tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&id])
                 .map_err(internal)?;
             tx.execute(
@@ -285,20 +303,44 @@ impl EntityStore {
                 params![id, DEFAULT_WORKSPACE_ID, title, normalize_for_search(title)],
             )
             .map_err(internal)?;
+            updated
         } else {
-            tx.execute(
-                "UPDATE entities SET deleted_at=?1,updated_at=?1,revision=?2 WHERE id=?3",
-                params![now, revision, id],
-            )
-            .map_err(internal)?;
+            let updated = tx
+                .execute(
+                    "UPDATE entities SET deleted_at=?1,updated_at=?1,revision=?2,updated_by_type='user',updated_by_id=?3 WHERE id=?4 AND revision=?5",
+                    params![now, revision, DEFAULT_USER_ID, id, expected],
+                )
+                .map_err(internal)?;
             tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&id])
                 .map_err(internal)?;
+            updated
+        };
+        if updated != 1 {
+            return Err(AppError::ConflictRevision {
+                entity_id: id,
+                expected,
+                actual: current.revision,
+            });
         }
-        tx.execute(
-            "UPDATE undo_batches SET status='undone',undone_at=?1 WHERE id=?2",
+        let completed_batch = tx.execute(
+            "UPDATE undo_batches SET status='undone',undone_at=?1 WHERE id=?2 AND status='available'",
             params![now, batch],
         )
         .map_err(internal)?;
+        if completed_batch != 1 {
+            return Err(AppError::Validation {
+                field: "undoBatchId".into(),
+                reason: "already undone".into(),
+            });
+        }
+        let resulting_area = Area {
+            id: current.id.clone(),
+            title: restored_title.unwrap_or(&current.title).to_owned(),
+            revision,
+            created_at_ms: current.created_at_ms,
+            updated_at_ms: now.to_string(),
+        };
+        write_version(&tx, &resulting_area, changed_fields, &operation_id, now)?;
         tx.execute("INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,'undo.executed',?3,?4,'{}','user',?5,?6,?7)", params![event_id,DEFAULT_WORKSPACE_ID,id,revision,DEFAULT_USER_ID,operation_id,now]).map_err(internal)?;
         tx.execute(
             "INSERT INTO audit_events VALUES (?1,?2,'undo.execute','user',?3,?4,?5,NULL,?6)",
@@ -348,12 +390,70 @@ impl EntityStore {
             .map_err(internal)
     }
 
+    pub fn area_history(&self, id: &str) -> Result<Vec<AreaVersion>, AppError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT revision,snapshot_json,operation_id,created_at FROM entity_versions WHERE entity_id=?1 ORDER BY revision",
+            )
+            .map_err(internal)?;
+        statement
+            .query_map([id], |row| {
+                let revision = row.get(0)?;
+                let snapshot: String = row.get(1)?;
+                let area: Area = serde_json::from_str(&snapshot).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        1,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?;
+                Ok(AreaVersion {
+                    revision,
+                    title: area.title,
+                    operation_id: row.get(2)?,
+                    created_at_ms: row.get::<_, i64>(3)?.to_string(),
+                })
+            })
+            .map_err(internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(internal)
+    }
+
     pub fn backup_to(&self, path: impl AsRef<Path>) -> Result<(), AppError> {
+        let path = path.as_ref();
+        create_new_database_file(path)?;
         let mut destination = Connection::open(path).map_err(internal)?;
         Backup::new(&self.connection, &mut destination)
             .map_err(internal)?
             .run_to_completion(32, Duration::from_millis(1), None)
-            .map_err(internal)
+            .map_err(internal)?;
+        destination
+            .execute(
+                "INSERT INTO backup_metadata VALUES (?1,?2,?3,'ok')",
+                params![Uuid::now_v7().to_string(), now(), latest_schema_version()],
+            )
+            .map_err(internal)?;
+        validate_connection(&destination)
+    }
+
+    pub fn restore_backup(
+        source: impl AsRef<Path>,
+        destination: impl AsRef<Path>,
+    ) -> Result<(), AppError> {
+        let source = Connection::open_with_flags(
+            source,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(internal)?;
+        validate_connection(&source)?;
+        create_new_database_file(destination.as_ref())?;
+        let mut restored = Connection::open(destination).map_err(internal)?;
+        Backup::new(&source, &mut restored)
+            .map_err(internal)?
+            .run_to_completion(32, Duration::from_millis(1), None)
+            .map_err(internal)?;
+        validate_connection(&restored)
     }
 
     pub fn integrity_check(&self) -> Result<bool, AppError> {
@@ -362,10 +462,6 @@ impl EntityStore {
             .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
             .map_err(internal)?
             == "ok")
-    }
-
-    fn get_area(&self, id: &str) -> Result<Option<Area>, AppError> {
-        self.connection.query_row("SELECT id,title,revision,created_at,updated_at FROM entities WHERE id=?1 AND type_id=?2 AND deleted_at IS NULL", params![id,AREA_TYPE_ID], row_area).optional().map_err(internal)
     }
 }
 
@@ -378,24 +474,12 @@ fn write_history(
     event: &str,
     now: i64,
 ) -> Result<(), AppError> {
-    let snapshot = serde_json::to_string(area).map_err(internal)?;
     tx.execute(
         "INSERT INTO undo_batches VALUES (?1,?2,?3,'available',?4,NULL)",
         params![batch, DEFAULT_WORKSPACE_ID, operation, now],
     )
     .map_err(internal)?;
-    tx.execute(
-        "INSERT INTO entity_versions VALUES (?1,?2,?3,?4,'[\"title\"]',?5,?6)",
-        params![
-            Uuid::now_v7().to_string(),
-            area.id,
-            area.revision,
-            snapshot,
-            operation,
-            now
-        ],
-    )
-    .map_err(internal)?;
+    write_version(tx, area, "[\"title\"]", operation, now)?;
     tx.execute("INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,?3,?4,?5,'{}','user',?6,?7,?8)", params![event,DEFAULT_WORKSPACE_ID,action,area.id,area.revision,DEFAULT_USER_ID,operation,now]).map_err(internal)?;
     tx.execute(
         "INSERT INTO audit_events VALUES (?1,?2,?3,'user',?4,?5,?6,?7,?8)",
@@ -413,40 +497,139 @@ fn write_history(
     .map_err(internal)?;
     Ok(())
 }
+
+fn write_version(
+    tx: &rusqlite::Transaction<'_>,
+    area: &Area,
+    changed_fields: &str,
+    operation: &str,
+    now: i64,
+) -> Result<(), AppError> {
+    let snapshot = serde_json::to_string(area).map_err(internal)?;
+    tx.execute(
+        "INSERT INTO entity_versions VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        params![
+            Uuid::now_v7().to_string(),
+            area.id,
+            area.revision,
+            snapshot,
+            changed_fields,
+            operation,
+            now
+        ],
+    )
+    .map_err(internal)?;
+    Ok(())
+}
+
 fn migrate(connection: &mut Connection) -> Result<(), AppError> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL);").map_err(internal)?;
-    let checksum = Sha256::digest(INITIAL_SCHEMA.as_bytes())
+    for (version, sql) in MIGRATIONS {
+        let checksum = migration_checksum(sql);
+        let stored: Option<String> = connection
+            .query_row(
+                "SELECT checksum FROM schema_migrations WHERE version=?1",
+                [version],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(internal)?;
+        if let Some(stored) = stored {
+            if stored != checksum {
+                return Err(AppError::IntegrityFailure {
+                    reason: "migration checksum mismatch".into(),
+                });
+            }
+            continue;
+        }
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Exclusive)
+            .map_err(internal)?;
+        tx.execute_batch(sql).map_err(internal)?;
+        tx.execute(
+            "INSERT INTO schema_migrations VALUES (?1,?2,?3)",
+            params![version, checksum, now()],
+        )
+        .map_err(internal)?;
+        tx.pragma_update(None, "user_version", version)
+            .map_err(internal)?;
+        tx.commit().map_err(internal)?;
+    }
+    Ok(())
+}
+
+fn migration_checksum(sql: &str) -> String {
+    Sha256::digest(sql.as_bytes())
         .iter()
         .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let stored: Option<String> = connection
-        .query_row(
-            "SELECT checksum FROM schema_migrations WHERE version=1",
-            [],
-            |r| r.get(0),
-        )
+        .collect()
+}
+
+fn latest_schema_version() -> i32 {
+    MIGRATIONS.last().map_or(0, |(version, _)| *version)
+}
+
+fn validate_connection(connection: &Connection) -> Result<(), AppError> {
+    let integrity: String = connection
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(internal)?;
+    if integrity != "ok" {
+        return Err(AppError::IntegrityFailure {
+            reason: "database integrity check failed".into(),
+        });
+    }
+    let foreign_key_failure: Option<i32> = connection
+        .query_row("PRAGMA foreign_key_check", [], |row| row.get(0))
         .optional()
         .map_err(internal)?;
-    if let Some(stored) = stored {
-        if stored != checksum {
+    if foreign_key_failure.is_some() {
+        return Err(AppError::IntegrityFailure {
+            reason: "database foreign key check failed".into(),
+        });
+    }
+    let version: i32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(internal)?;
+    if version != latest_schema_version() {
+        return Err(AppError::IntegrityFailure {
+            reason: "unsupported database schema version".into(),
+        });
+    }
+    for (migration_version, sql) in MIGRATIONS {
+        let stored: Option<String> = connection
+            .query_row(
+                "SELECT checksum FROM schema_migrations WHERE version=?1",
+                [migration_version],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(internal)?;
+        if stored.as_deref() != Some(migration_checksum(sql).as_str()) {
             return Err(AppError::IntegrityFailure {
                 reason: "migration checksum mismatch".into(),
             });
         }
-        return Ok(());
     }
-    let tx = connection
-        .transaction_with_behavior(TransactionBehavior::Exclusive)
-        .map_err(internal)?;
-    tx.execute_batch(INITIAL_SCHEMA).map_err(internal)?;
-    tx.execute(
-        "INSERT INTO schema_migrations VALUES (1,?1,?2)",
-        params![checksum, now()],
-    )
-    .map_err(internal)?;
-    tx.pragma_update(None, "user_version", 1)
-        .map_err(internal)?;
-    tx.commit().map_err(internal)
+    Ok(())
+}
+
+fn create_new_database_file(path: &Path) -> Result<(), AppError> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map(|_| ())
+        .map_err(|_| AppError::Validation {
+            field: "destination".into(),
+            reason: "must not already exist and must be writable".into(),
+        })
+}
+
+fn get_area_in_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+) -> Result<Option<Area>, AppError> {
+    tx.query_row("SELECT id,title,revision,created_at,updated_at FROM entities WHERE id=?1 AND type_id=?2 AND deleted_at IS NULL", params![id,AREA_TYPE_ID], row_area).optional().map_err(internal)
 }
 fn row_area(row: &rusqlite::Row<'_>) -> rusqlite::Result<Area> {
     Ok(Area {
@@ -463,9 +646,9 @@ fn now() -> i64 {
         .unwrap_or_default()
         .as_millis() as i64
 }
-fn internal(error: impl std::fmt::Display) -> AppError {
-    AppError::IntegrityFailure {
-        reason: error.to_string(),
+fn internal(_error: impl std::fmt::Display) -> AppError {
+    AppError::Internal {
+        operation_id: Uuid::now_v7().to_string(),
     }
 }
 
@@ -473,6 +656,7 @@ fn internal(error: impl std::fmt::Display) -> AppError {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
     #[test]
     fn persists_and_undoes_area() {
         let dir = tempdir().unwrap();
@@ -510,5 +694,44 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn rolls_back_an_interrupted_initial_migration() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("interrupted.db");
+        {
+            let mut connection = Connection::open(&path).unwrap();
+            connection
+                .execute_batch("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL);")
+                .unwrap();
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Exclusive)
+                .unwrap();
+            transaction.execute_batch(INITIAL_SCHEMA).unwrap();
+        }
+
+        let store = EntityStore::open(&path).unwrap();
+        assert_eq!(store.health().unwrap().schema_version, 1);
+        assert!(store.integrity_check().unwrap());
+    }
+
+    #[test]
+    fn rejects_a_changed_applied_migration() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("checksum.db");
+        drop(EntityStore::open(&path).unwrap());
+        Connection::open(&path)
+            .unwrap()
+            .execute(
+                "UPDATE schema_migrations SET checksum='changed' WHERE version=1",
+                [],
+            )
+            .unwrap();
+
+        assert!(matches!(
+            EntityStore::open(&path),
+            Err(AppError::IntegrityFailure { reason }) if reason == "migration checksum mismatch"
+        ));
     }
 }

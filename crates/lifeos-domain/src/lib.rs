@@ -91,7 +91,21 @@ pub struct SearchResult {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
-#[serde(tag = "code", content = "details", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "camelCase")]
+pub struct AreaVersion {
+    pub revision: i32,
+    pub title: String,
+    pub operation_id: String,
+    pub created_at_ms: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(
+    tag = "code",
+    content = "details",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    rename_all_fields = "camelCase"
+)]
 pub enum AppError {
     Validation {
         field: String,
@@ -130,4 +144,26 @@ pub fn validate_title(value: &str) -> Result<String, AppError> {
         });
     }
     Ok(title.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tagged_errors_serialize_with_camel_case_details() {
+        let error = AppError::ConflictRevision {
+            entity_id: "area-1".into(),
+            expected: 2,
+            actual: 3,
+        };
+
+        assert_eq!(
+            serde_json::to_value(error).unwrap(),
+            serde_json::json!({
+                "code": "CONFLICT_REVISION",
+                "details": { "entityId": "area-1", "expected": 2, "actual": 3 }
+            })
+        );
+    }
 }

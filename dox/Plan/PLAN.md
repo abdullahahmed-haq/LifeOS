@@ -188,17 +188,17 @@ Acceptance: signed/installable Windows/macOS matrix, migration and update, offli
 
 ## 5. Mandatory technical spikes
 
-| Spike | Gate | Timing |
-|---|---|---|
-| A: `tauri-specta` vs TauRPC | query, revision mutation, tagged error, event; deterministic no-`any` client; explicit capability | before M2 |
-| B: bundled SQLite | migrations, FK, WAL, FTS5, concurrent reads/bounded writes, backup/restore/integrity, interruption recovery | before M2 |
-| C: Arabic/English search | original preserved; exact/prefix/FTS ranking and controlled normalization goldens | before M2 |
-| D: RTL interaction kit | React Aria/FormatJS and later DnD/calendar/grid keyboard equivalence in both directions | before broad UI/M4 |
-| E: Obsidian round trip | 100+ hostile fixtures and byte-safe reserved patch/conflicts | before M7 |
-| F: Agent sidecar | packaged/supervised/cancellable/versioned on target matrix | before M8 advanced work |
-| G: provider normalization | streaming/tool/structured/cancel/quota/usage parity; SDK never executes Core tools | before M8 |
-| H: MCP | official 2026-07-28 SDK resource/read/write/consent/cancel/limits/revoke/audit | before M10 |
-| I: native E2E/release | WebdriverIO and signed-like install/update/restore matrix | before M11 |
+| Spike                       | Gate                                                                                                                | Timing                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| A: `tauri-specta` vs TauRPC | query, revision mutation, tagged error, event; deterministic checked client; no authored `any`; explicit capability | before M2               |
+| B: bundled SQLite           | migrations, FK, WAL, FTS5, concurrent reads/bounded writes, backup/restore/integrity, interruption recovery         | before M2               |
+| C: Arabic/English search    | original preserved; exact/prefix/FTS ranking and controlled normalization goldens                                   | before M2               |
+| D: RTL interaction kit      | React Aria/FormatJS and later DnD/calendar/grid keyboard equivalence in both directions                             | before broad UI/M4      |
+| E: Obsidian round trip      | 100+ hostile fixtures and byte-safe reserved patch/conflicts                                                        | before M7               |
+| F: Agent sidecar            | packaged/supervised/cancellable/versioned on target matrix                                                          | before M8 advanced work |
+| G: provider normalization   | streaming/tool/structured/cancel/quota/usage parity; SDK never executes Core tools                                  | before M8               |
+| H: MCP                      | official 2026-07-28 SDK resource/read/write/consent/cancel/limits/revoke/audit                                      | before M10              |
+| I: native E2E/release       | WebdriverIO and signed-like install/update/restore matrix                                                           | before M11              |
 
 ## 6. Technical and product risks
 
@@ -243,23 +243,23 @@ Release builds run through a pinned GitHub Actions OS matrix only after signing/
 
 ## 9. Requirement traceability
 
-| DOX requirement family | Milestone(s) | Primary evidence |
-|---|---|---|
-| PRD 0-7 principles/scope | M0-M11 | plan, dependency rules, offline gates |
-| PRD 8-10 / DATA_MODEL 1-6 identity/entities/relations | M2-M4 | migrations and Core integration tests |
-| PRD 11-12 progress/score | M5 | deterministic golden/property tests |
-| PRD 13-25 Home/Today/Calendar/Project/Task/Focus/Review/Capture/Search/Knowledge | M3-M6 | bilingual component and E2E flows |
-| PRD 26 / OBSIDIAN | M7 | hostile round-trip and recovery matrix |
-| PRD 27-34 views/widgets/templates/customization/automation/notifications/reports | M3-M6 | shared query, registry, safety tests |
-| PRD 35-51 / AI | M8-M9 | provider/permission/egress/receipt contracts |
-| PRD 52 / MCP | M10 | protocol conformance and interoperability |
-| PRD 54-61 storage/events/security/backup/import/export | M1-M6 | DB, safety, restore, export suites |
-| PRD 62-69 / I18N / SCREEN 61-99 | every UI milestone | catalog, RTL/LTR, bidi, keyboard/a11y tests |
-| SCREEN 2-60 shell/screens/overlays | M1 and owning domain milestone | route/component acceptance matrix |
-| SCREEN 100-105 relationships/families/DoD | M1-M11 | route map and reusable module tests |
-| TEST_PLAN full matrix | every milestone/M11 | retained command and platform results |
-| IMPLEMENTATION_PLAN sequence | M0-M11 | PROGRESS gates and decision records |
-| TECHNOLOGY_RESEARCH Spikes A-I | before dependent milestone | spike reports and executable tests |
+| DOX requirement family                                                           | Milestone(s)                   | Primary evidence                             |
+| -------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------- |
+| PRD 0-7 principles/scope                                                         | M0-M11                         | plan, dependency rules, offline gates        |
+| PRD 8-10 / DATA_MODEL 1-6 identity/entities/relations                            | M2-M4                          | migrations and Core integration tests        |
+| PRD 11-12 progress/score                                                         | M5                             | deterministic golden/property tests          |
+| PRD 13-25 Home/Today/Calendar/Project/Task/Focus/Review/Capture/Search/Knowledge | M3-M6                          | bilingual component and E2E flows            |
+| PRD 26 / OBSIDIAN                                                                | M7                             | hostile round-trip and recovery matrix       |
+| PRD 27-34 views/widgets/templates/customization/automation/notifications/reports | M3-M6                          | shared query, registry, safety tests         |
+| PRD 35-51 / AI                                                                   | M8-M9                          | provider/permission/egress/receipt contracts |
+| PRD 52 / MCP                                                                     | M10                            | protocol conformance and interoperability    |
+| PRD 54-61 storage/events/security/backup/import/export                           | M1-M6                          | DB, safety, restore, export suites           |
+| PRD 62-69 / I18N / SCREEN 61-99                                                  | every UI milestone             | catalog, RTL/LTR, bidi, keyboard/a11y tests  |
+| SCREEN 2-60 shell/screens/overlays                                               | M1 and owning domain milestone | route/component acceptance matrix            |
+| SCREEN 100-105 relationships/families/DoD                                        | M1-M11                         | route map and reusable module tests          |
+| TEST_PLAN full matrix                                                            | every milestone/M11            | retained command and platform results        |
+| IMPLEMENTATION_PLAN sequence                                                     | M0-M11                         | PROGRESS gates and decision records          |
+| TECHNOLOGY_RESEARCH Spikes A-I                                                   | before dependent milestone     | spike reports and executable tests           |
 
 ## 10. Definition of done for every vertical slice
 

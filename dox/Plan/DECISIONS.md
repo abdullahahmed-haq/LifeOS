@@ -42,21 +42,23 @@ Use a pnpm workspace plus Cargo workspace with `apps/desktop`, deep Rust modules
 
 ## D-003 — Rust-to-TypeScript contracts
 
-Status: Spike A in progress
+Status: accepted after Spike A
 
-Pilot `tauri-specta` and TauRPC against Tauri 2 using one query, one revision-checked mutation, one tagged error, and one event. Select `tauri-specta` if both are viable because generation is a smaller tooling seam around ordinary Tauri commands. If either forces transport types into the domain or fails deterministic generation, use a small checked-in generator rather than hand-maintained duplicate DTOs. No `any` escape is permitted.
+Both `tauri-specta` `2.0.0-rc.25` and TauRPC `0.8.2` compile against the pinned Tauri/Specta versions and generate a query, revision-checked mutation, tagged error, and typed event. Select `tauri-specta`: it preserves ordinary explicit Tauri commands, keeps `ApplicationCore` independent of the transport, and needs no additional frontend runtime. TauRPC's generated client is compact and contains no `any`, but adopting it would replace the command adapter with an async macro/router abstraction, require Tokio at the adapter seam, and add the `taurpc` JavaScript runtime. The isolated reproducible probe remains under `spikes/typed-ipc`; TauRPC is not shipped.
+
+The selected generator is checked deterministically in CI. Its upstream transport runtime currently contains three `any` annotations, governed by D-021; no authored domain or application contract uses `any`.
 
 ## D-004 — SQLite access, migrations, and coordination
 
-Status: accepted pending Spike B evidence
+Status: accepted after Spike B
 
 Use `rusqlite` with bundled SQLite and explicit SQL. React never receives `tauri-plugin-sql`. ApplicationCore owns one coordinated write path; bounded reads use separate connections only after concurrency tests. Start with a small append-only embedded migration runner; adopt `rusqlite_migration` only if its current exact version adds checksum/failure leverage without weakening recovery. Domain transactions do not wait on UI, network, AI, or filesystem operations.
 
 ## D-005 — WAL, integrity, backup, and restore
 
-Status: accepted pending Spike B evidence
+Status: accepted after Spike B
 
-At open, enable and verify foreign keys, WAL, bounded busy timeout, and `synchronous=NORMAL` for ordinary local operation. Use SQLite's Online Backup API for consistent snapshots. Restore validates manifest/schema, `integrity_check`, and foreign keys into a separate candidate path before activation; the active database is not overwritten by tests. Checkpoint behavior and interrupted writes/migrations have explicit fixtures.
+At open, enable and verify foreign keys, WAL, bounded busy timeout, and `synchronous=NORMAL` for ordinary local operation. Use SQLite's Online Backup API for consistent snapshots. Backup refuses to overwrite an existing path and records validation metadata. Restore validates schema/checksums, `integrity_check`, and foreign keys, then uses Online Backup into a newly created candidate path; it never replaces the active database. Candidate activation remains a later UI/application-lifecycle operation. Concurrent revision writes, interrupted initial migration rollback, checksum tampering, reopen persistence, backup, and candidate restore have temporary-database tests.
 
 ## D-006 — React routing, query caching, forms, and UI state
 
@@ -66,9 +68,11 @@ Use TanStack Router for typed routes and TanStack Query for canonical query cach
 
 ## D-007 — Localization and search normalization
 
-Status: accepted pending Spike C evidence
+Status: accepted after Spike C
 
 Use React Intl/FormatJS catalogs. Set `lang`/`dir` before React's first paint and persist locale separately from canonical domain data. Preserve original user strings. Search maintains a derived, versioned lowercase matching projection that removes tatweel and Arabic combining marks and normalizes common Alef forms and Alef Maqsura/Ya only for matching. Do not use this normalization for identity, equality, authorization, or stored display. Prefix behavior and false-positive cases are golden-tested.
+
+The Spike C suite covers English prefix search, Arabic exact search, mixed Arabic/English exact search, original display preservation, and FTS ranking through `ApplicationCore`. Normalized text remains derived and rebuildable.
 
 ## D-008 — Visual foundation and font
 
@@ -112,6 +116,8 @@ Status: architecture accepted; external credentials deferred
 
 Use official Tauri updater/action with mandatory signature verification, HTTPS metadata, migration compatibility, staged rollout, and retained provenance/SBOM/checksums. Do not create or commit private keys. macOS signing/notarization and Windows signing need external certificates and protected CI secrets and therefore remain blocked until explicitly provisioned. Unsigned local builds are development evidence, not published updates.
 
+Local macOS development bundles use the explicit ad-hoc identity `-` so bundle resources are sealed and independently verifiable. Ad-hoc signing has no trusted publisher identity and is never release evidence; Developer ID signing and notarization remain externally blocked.
+
 ## D-015 — License and dependency policy
 
 Status: accepted
@@ -138,3 +144,21 @@ Status: open
 - The user has not supplied final brand specifications, source screenshots, signing credentials, updater endpoints, or a repository license.
 - Optional database encryption, semantic vector adapter, final typography, cloud sync/CRDT, mobile framework, and public plugin distribution remain deliberately undecided.
 - The exact credential-store fallback on platforms without a native service awaits its platform spike.
+
+## D-023 — Frozen initial migration and append-only runner
+
+Status: accepted
+
+Migration 1 was already built and distributed in development evidence, so its exact SQL bytes and checksum are frozen even though it creates more foundation tables than the preferred incremental pattern. Rewriting it would reject existing databases. The runner now iterates an ordered append-only migration table, verifies every applied checksum, and applies each missing migration in an exclusive transaction. All future schema work must be a new numbered migration with focused integration tests.
+
+## D-024 — Release database isolation and error disclosure
+
+Status: accepted
+
+`LIFEOS_DEV_DATABASE` is compiled into debug behavior only; release builds always resolve the canonical database beneath Tauri's application-data directory. Desktop setup propagates errors instead of panicking. SQLite and serialization errors crossing the Core boundary are redacted to `INTERNAL` plus a UUIDv7 operation ID; only controlled validation, conflict, not-found, and integrity explanations are exposed. This prevents local paths, SQL, or database contents from leaking through React IPC.
+
+## D-025 — Compatible Vite line and explicit build-script allowlist
+
+Status: accepted
+
+Pin Vite `7.3.6` because `@vitejs/plugin-react` `5.1.0` officially supports Vite 4–7, not Vite 8. Both are MIT-licensed. pnpm 11's workspace-level `allowBuilds` permits only `esbuild` `0.28.2` (MIT), the Vite compiler binary; no other dependency install scripts are authorized. CI and local development use the same Node `24.14.0` pin.

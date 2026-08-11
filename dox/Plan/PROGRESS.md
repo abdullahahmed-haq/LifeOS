@@ -13,19 +13,19 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - Completed — Verify/install toolchains and pin Rust `1.97.1`, Node `24.14.0`, pnpm `11.16.0`, and TypeScript `5.9.3`; TypeScript 7 was rejected by the lint integration and replaced without weakening strictness.
 - Completed — Create pnpm/Cargo workspaces, Tauri 2/React 19/Vite foundation, scripts, CI, ignores, README, dependency and asset manifests.
 - Completed — Establish explicit Tauri capabilities and CSP before native feature work.
-- In progress — Complete Spike A (`tauri-specta` versus TauRPC); `tauri-specta` has generated a query, revision mutation, tagged error union, and event contract. The TauRPC comparison remains.
-- In progress — Complete Spike B: bundled `rusqlite`, checksum migration, FK/WAL/FTS5/integrity, and online backup are implemented and tested in the Area slice; restore/concurrency/interruption coverage remains.
-- In progress — Complete Spike C: normalized FTS query/prefix path and Arabic normalization golden test are implemented; English/mixed-direction ranking coverage remains.
-- In progress — Implement the real Area create/list/revision/event/audit/version/undo vertical slice. Rust integration test creates, updates, rejects a stale revision, undoes, reopens, and confirms persistence.
-- In progress — Implement localized application shell, overlays/containers, states, and Area UI in English LTR and Arabic RTL. The React test covers the empty state and dynamic RTL switch.
-- In progress — Run full verification and retain exit codes, counts, failures, skips, and platform limits. Typecheck/lint/test/fmt/Clippy are green; native build is compiling.
+- Completed — Complete Spike A (`tauri-specta` versus TauRPC). Both candidates compile and generate the required query, revision mutation, tagged error, and event; select `tauri-specta` as the smaller production seam and retain the isolated TauRPC probe.
+- Completed — Complete Spike B: bundled `rusqlite`, append-only checksum migrations, FK/WAL/FTS5/integrity, online backup, candidate restore, atomic concurrent revision writes, and interrupted-migration recovery are implemented and tested.
+- Completed — Complete Spike C: exact/prefix/ranked FTS behavior covers Arabic, English, and mixed text while preserving the original display bytes.
+- Completed — Implement the real Area create/list/revision/event/audit/version/undo vertical slice. Core tests create, update, reject a concurrent stale revision, retain every version including undo, reopen, and confirm persistence.
+- Completed — Implement localized application shell, overlays/containers, states, and Area UI in English LTR and Arabic RTL. React tests cover the empty state, dynamic RTL switch, and failure-safe Area creation.
+- Completed — Run the complete verification matrix and retain exit codes, counts, failures, skips, hashes, and platform limits for this repair commit.
 - Completed — Review diff and secret/build-output exclusions, create four small logical commits, and push `codex/full-app-foundation` to the authorized origin.
 
 ## Milestone status
 
 - Completed — M0 Reference and repository baseline.
-- In progress — M1 Desktop, locale, and persistence foundation.
-- In progress — M2 Entity/safety spine and Area vertical slice.
+- Completed — M1 Desktop, locale, and persistence foundation.
+- Completed — M2 Entity/safety spine and Area vertical slice.
 - Pending — M3 Projects, tasks, goals, and relations.
 - Pending — M4 Today, calendar, habits, people/requests, events, and focus.
 - Pending — M5 Progress, Home, reports, and reviews.
@@ -40,10 +40,11 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 
 - Completed — Stable Rust `1.97.1`, Cargo `1.97.1`, Clang, and the Apple SDK are installed and available for local native verification.
 - Blocked — Pixel-level visual comparison against UI V001 is impossible because the referenced UI implementation/screens are absent. Foundation work continues from the DOX visual contract; this does not block functional delivery.
-- Completed — `pnpm tauri build` produced a macOS ARM64 `LifeOS.app` and `LifeOS_0.1.0_aarch64.dmg`. The bundle plist identifies `lifeos-desktop` as `CFBundleExecutable`; the final DMG SHA-256 was `dde699a0ed99b7795d91fa4c6fdb5b327baa16ea6faf8ed2a087be04f5c99f9b`. A later rebuild after licensing content again produced the correct app executable; the local Tauri DMG helper left an intermediate writable image, so the already verified final DMG is retained as build evidence and release automation needs a clean-host repeat.
+- Completed — `CI=true pnpm tauri build` produced a fresh macOS ARM64 `LifeOS.app` and `LifeOS_0.1.0_aarch64.dmg`. Strict deep code-sign verification passes for the explicit ad-hoc development signature; `hdiutil verify` reports a valid image; DMG SHA-256 is `d66a62fadf9bcdbc0ef0f7ffb34d989320db7f7f69ec0e651f32c15fc1278816`.
 - Completed — Verify El Messiri's SIL OFL 1.1 license and copy the supplied UI V001 font byte-for-byte with a source/checksum manifest.
 - Blocked — Windows and macOS Intel build/runtime evidence requires CI runners not present on this ARM64 host; CI configuration will be added and local limitations reported.
 - Blocked — Release signing/notarization and updater publication require external certificates/keys/endpoints; development packaging can proceed without publishing.
+- Blocked — One corrupt writable HFS image from an earlier local DMG attempt remains stuck at `/dev/disk6` with an I/O-error mount; macOS refuses normal and forced detach. It is under ignored `target/` output and requires a host restart to clear. CI-mode packaging bypassed Finder interaction and produced a verified final DMG despite this host-only condition.
 
 ## Evidence log
 
@@ -52,6 +53,9 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - Available JS tools at implementation: Node `v24.14.0`, pnpm `11.16.0`; the repository pin was updated to the verified host version.
 - Native host: macOS 26.5.2 ARM64.
 - Rust after baseline setup: `rustc` and `cargo` `1.97.1` via stable Rustup.
-- Typed IPC evidence: `cargo run -p lifeos-desktop --features binding-generation --bin generate_bindings` exits 0 and writes `packages/contracts/src/bindings.ts` with seven commands plus `foundationProgress` event.
-- Native packaging correction: the first build exposed the unrestricted bindings generator as the packaged binary. It is now gated behind `binding-generation`; the desktop binary remains the only default bundle candidate and must be rebuilt before native-build acceptance.
-- Fresh checks before native packaging: `pnpm typecheck` exit 0; `pnpm lint` exit 0; `pnpm test` exit 0 (1 React test; contracts/i18n currently have no test files); `cargo fmt --check` exit 0; `cargo clippy --workspace --all-targets -- -D warnings` exit 0; `cargo test --workspace` exit 0 (2 tests passed).
+- Typed IPC evidence: `pnpm contracts:check` regenerates to a temporary candidate and byte-compares `packages/contracts/src/bindings.ts`; the checked-in contract contains seven commands plus `foundationProgress`. The isolated TauRPC `0.8.2` probe also compiles and generates its equivalent query/mutation/error/event client.
+- Native packaging correction: the bindings generator is gated behind `binding-generation`; the fresh bundle plist and Mach-O inspection confirm `lifeos-desktop` is the packaged executable.
+- JavaScript verification: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm contracts:check`, `pnpm peers check`, `pnpm build`, and `pnpm test` exit 0. Desktop Vitest reports 4 passed, 0 failed; contracts and i18n intentionally report no test files. Production audit reports no known vulnerabilities. Vite 7.3.6 transforms 1,396 modules.
+- Rust verification: `cargo fmt --check`, Clippy across the workspace/all targets with warnings denied, and `cargo test --workspace` exit 0. Rust reports 10 passed, 0 failed, 0 ignored.
+- Native evidence: final executable is a 13,439,984-byte ARM64 Mach-O with SHA-256 `7f7ffb73231d9b0d940c0d1aa0f0a5a4949a0b372271d6ae65456ffbc109ea4b`; strict app-bundle code-sign verification and DMG verification exit 0. Binary inspection confirms `LIFEOS_DEV_DATABASE` is absent from release output.
+- Smoke evidence: `pnpm tauri dev` launched the native app against the explicit ignored `.local/verification-20260811.db`; the process ran, schema version was 1, journal mode was WAL, integrity was `ok`, and one seeded workspace existed. The smoke process was then stopped intentionally.

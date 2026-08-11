@@ -1,0 +1,16 @@
+{
+  "name": "lifeos",
+  "private": true,
+  "packageManager": "pnpm@11.16.0",
+  "engines": { "node": "24.14.0", "pnpm": "11.16.0" },
+  "scripts": {
+    "dev": "pnpm --filter @lifeos/desktop dev",
+    "tauri": "pnpm --filter @lifeos/desktop tauri",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "build": "pnpm --filter @lifeos/desktop build",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": { "prettier": "3.9.6" }
+}

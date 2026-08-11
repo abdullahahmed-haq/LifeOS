@@ -1,0 +1,25 @@
+[workspace]
+members = [
+  "apps/desktop/src-tauri",
+  "crates/lifeos-core",
+  "crates/lifeos-domain",
+  "crates/lifeos-search",
+  "crates/lifeos-store"
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+rusqlite = { version = "0.40.2", features = ["backup", "bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+thiserror = "2.0.20"
+unicode-normalization = "0.1.25"
+uuid = { version = "1.24.0", features = ["serde", "v7"] }

@@ -18,6 +18,7 @@ import {
 import { useIntl } from "react-intl";
 import { AreaScreen } from "../features/areas/area-screen";
 import { TrashScreen } from "../features/lifecycle/trash-screen";
+import { GeneralSettingsScreen } from "../features/settings/general-settings-screen";
 import { usePresentation } from "./presentation";
 
 const rootRoute = createRootRoute({ component: ApplicationShell });
@@ -50,7 +51,7 @@ const trashRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "settings/general",
-  component: RoutePlaceholder,
+  component: GeneralSettingsScreen,
 });
 const integrationsRoute = createRoute({
   getParentRoute: () => rootRoute,

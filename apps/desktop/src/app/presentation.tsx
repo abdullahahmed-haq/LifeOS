@@ -1,6 +1,7 @@
 import {
   createContext,
   use,
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -24,6 +25,7 @@ type PresentationContextValue = Presentation & {
   ready: boolean;
   setLocale: (locale: Locale) => void;
   setTheme: (theme: ThemePreference) => void;
+  saveSettings: (next: Presentation) => Promise<void>;
 };
 
 const PresentationContext = createContext<PresentationContextValue | null>(
@@ -116,6 +118,15 @@ export function PresentationProvider({ children }: { children: ReactNode }) {
     applyPresentation(settings.data.locale, settings.data.theme);
   }, [settings.data]);
 
+  const saveSettings = useCallback(
+    async (next: Presentation) => {
+      const current = settings.data;
+      if (!current) throw new Error("Settings are not ready");
+      await update.mutateAsync({ ...current, ...next });
+    },
+    [settings.data, update],
+  );
+
   const value = useMemo<PresentationContextValue>(
     () => ({
       ...presentation,
@@ -124,18 +135,19 @@ export function PresentationProvider({ children }: { children: ReactNode }) {
         applyPresentation(locale, presentation.theme);
         setPresentation((current) => ({ ...current, locale }));
         if (settings.data && locale !== settings.data.locale) {
-          update.mutate({ ...settings.data, locale });
+          void saveSettings({ ...presentation, locale });
         }
       },
       setTheme: (theme) => {
         applyPresentation(presentation.locale, theme);
         setPresentation((current) => ({ ...current, theme }));
         if (settings.data && theme !== settings.data.theme) {
-          update.mutate({ ...settings.data, theme });
+          void saveSettings({ ...presentation, theme });
         }
       },
+      saveSettings,
     }),
-    [presentation, settings.data, settings.isSuccess, update],
+    [presentation, saveSettings, settings.data, settings.isSuccess],
   );
 
   return <PresentationContext value={value}>{children}</PresentationContext>;

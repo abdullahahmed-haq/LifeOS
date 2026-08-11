@@ -185,6 +185,49 @@ body {
 .feature-status {
   max-width: 720px;
 }
+.settings-card {
+  display: grid;
+  gap: 18px;
+  max-width: 560px;
+  margin-block-start: 28px;
+  padding: 24px;
+  border-radius: 20px;
+  background: #e9f0ef;
+}
+.settings-card label,
+.select-field {
+  display: grid;
+  gap: 7px;
+}
+.settings-card input,
+.settings-card select {
+  min-block-size: 42px;
+  border: 1px solid #b7c7c5;
+  border-radius: 9px;
+  padding: 10px;
+  background: #fff;
+  color: #273743;
+  font: inherit;
+}
+.settings-card button {
+  justify-self: start;
+  border: 0;
+  border-radius: 11px;
+  padding: 10px 14px;
+  background: #177d78;
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+:root[data-theme="dark"] .settings-card {
+  background: #294346;
+}
+:root[data-theme="dark"] .settings-card input,
+:root[data-theme="dark"] .settings-card select {
+  background: #2b3c45;
+  color: #edf5f5;
+  border-color: #567176;
+}
 .area-card span {
   font-size: 12px;
   color: #177d78;

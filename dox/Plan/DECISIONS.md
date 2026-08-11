@@ -28,6 +28,12 @@ Status: accepted for F0
 
 Area archive, Trash, restore, and undo now use the same revision-checked Core transaction as create/update. Lifecycle state is included in Area version snapshots, removed from the active lexical projection while inactive, restored to the projection only when active, and recorded through domain/audit events. This is the proving ground for the generic lifecycle module; subsequent entities must reuse the same lifecycle semantics rather than replicate UI-only deletion behavior.
 
+## D-030 — Settings writes keep immediate presentation feedback canonical
+
+Status: accepted for F0
+
+The renderer applies a locale or theme choice immediately so direction and appearance respond without waiting for IPC, then persists the complete settings revision through the existing Core command. Test doubles and future adapters must echo the canonical submitted settings (or return an explicit conflict); a stale response must not be treated as a successful preference update. The full General Settings form persists timezone and week-start through the same command, not a frontend-only store.
+
 ## D-019 — Verified JavaScript toolchain pin
 
 The running development host is Node `24.14.0` and pnpm `11.16.0`. Pin those exact versions in `.node-version` and `package.json` rather than retaining a stale Node 22 observation that causes every package command to warn. CI uses the same declared versions. Reassess this pin before a supported-platform release.

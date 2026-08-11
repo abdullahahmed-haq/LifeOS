@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   appSettings: vi.fn(),
+  updateAppSettings: vi.fn(),
   listAreas: vi.fn(),
   archiveArea: vi.fn(),
   createArea: vi.fn(),
@@ -15,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@lifeos/contracts/bindings", () => ({
   commands: {
     appSettings: mocks.appSettings,
-    updateAppSettings: vi.fn(),
+    updateAppSettings: mocks.updateAppSettings,
     listAreas: mocks.listAreas,
     listTrashedAreas: mocks.listTrashedAreas,
     createArea: mocks.createArea,
@@ -42,6 +43,24 @@ describe("LifeOS application shell", () => {
         revision: 1,
       },
     });
+    mocks.updateAppSettings.mockReset();
+    mocks.updateAppSettings.mockImplementation(async (request) => ({
+      status: "ok",
+      data: {
+        data: {
+          locale: request.locale,
+          theme: request.theme,
+          timezone: request.timezone,
+          weekStartsOn: request.weekStartsOn,
+          revision: request.expectedRevision + 1,
+        },
+        operationId: request.operationId,
+        affectedEntityIds: [],
+        resultingRevisions: [],
+        domainEventIds: ["settings-event"],
+        undoBatchId: null,
+      },
+    }));
     mocks.listAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.listTrashedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.createArea.mockReset();
@@ -166,6 +185,27 @@ describe("LifeOS application shell", () => {
         id: "018f0000-0000-7000-8000-000000000001",
         expectedRevision: 3,
       }),
+    );
+  });
+
+  it("persists planning preferences through the settings route", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Settings" }));
+    const timezone = await screen.findByRole("textbox", { name: "Timezone" });
+    await user.clear(timezone);
+    await user.type(timezone, "Asia/Riyadh");
+    await user.click(screen.getByRole("button", { name: "Save preferences" }));
+
+    expect(mocks.updateAppSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timezone: "Asia/Riyadh",
+        expectedRevision: 1,
+      }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Preferences saved",
     );
   });
 });

@@ -2,8 +2,9 @@ use std::{fs, path::PathBuf};
 
 use lifeos_core::ApplicationCore;
 use lifeos_domain::{
-    ActionReceipt, AppError, AppSettings, Area, CreateAreaRequest, HealthSnapshot, SearchRequest,
-    SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest,
+    ActionReceipt, AppError, AppSettings, Area, AreaLifecycleRequest, CreateAreaRequest,
+    HealthSnapshot, SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
+    UpdateAreaRequest,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -46,6 +47,11 @@ fn list_areas(state: State<'_, AppState>) -> Result<Vec<Area>, AppError> {
 }
 #[tauri::command]
 #[specta::specta]
+fn list_trashed_areas(state: State<'_, AppState>) -> Result<Vec<Area>, AppError> {
+    state.core.list_trashed_areas()
+}
+#[tauri::command]
+#[specta::specta]
 fn create_area(
     state: State<'_, AppState>,
     request: CreateAreaRequest,
@@ -59,6 +65,30 @@ fn update_area(
     request: UpdateAreaRequest,
 ) -> Result<ActionReceipt<Area>, AppError> {
     state.core.update_area(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn archive_area(
+    state: State<'_, AppState>,
+    request: AreaLifecycleRequest,
+) -> Result<ActionReceipt<Area>, AppError> {
+    state.core.archive_area(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn trash_area(
+    state: State<'_, AppState>,
+    request: AreaLifecycleRequest,
+) -> Result<ActionReceipt<Area>, AppError> {
+    state.core.trash_area(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn restore_area(
+    state: State<'_, AppState>,
+    request: AreaLifecycleRequest,
+) -> Result<ActionReceipt<Area>, AppError> {
+    state.core.restore_area(request)
 }
 #[tauri::command]
 #[specta::specta]
@@ -109,8 +139,12 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             app_settings,
             update_app_settings,
             list_areas,
+            list_trashed_areas,
             create_area,
             update_area,
+            archive_area,
+            trash_area,
+            restore_area,
             undo_action,
             search_entities,
             foundation_check

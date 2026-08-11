@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   appSettings: vi.fn(),
   listAreas: vi.fn(),
+  archiveArea: vi.fn(),
   createArea: vi.fn(),
+  listTrashedAreas: vi.fn(),
+  restoreArea: vi.fn(),
+  trashArea: vi.fn(),
 }));
 
 vi.mock("@lifeos/contracts/bindings", () => ({
@@ -13,7 +17,11 @@ vi.mock("@lifeos/contracts/bindings", () => ({
     appSettings: mocks.appSettings,
     updateAppSettings: vi.fn(),
     listAreas: mocks.listAreas,
+    listTrashedAreas: mocks.listTrashedAreas,
     createArea: mocks.createArea,
+    archiveArea: mocks.archiveArea,
+    trashArea: mocks.trashArea,
+    restoreArea: mocks.restoreArea,
     undoAction: vi.fn(),
   },
 }));
@@ -35,7 +43,11 @@ describe("LifeOS application shell", () => {
       },
     });
     mocks.listAreas.mockResolvedValue({ status: "ok", data: [] });
+    mocks.listTrashedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.createArea.mockReset();
+    mocks.archiveArea.mockReset();
+    mocks.trashArea.mockReset();
+    mocks.restoreArea.mockReset();
   });
 
   it("renders the empty Areas state and switches the document to Arabic RTL", async () => {
@@ -116,5 +128,44 @@ describe("LifeOS application shell", () => {
     expect(
       await screen.findByRole("heading", { name: "Command palette" }),
     ).toBeInTheDocument();
+  });
+
+  it("sends an archive command with the canonical revision", async () => {
+    const user = userEvent.setup();
+    mocks.listAreas.mockResolvedValue({
+      status: "ok",
+      data: [
+        {
+          id: "018f0000-0000-7000-8000-000000000001",
+          title: "Health",
+          revision: 3,
+          createdAtMs: "1",
+          updatedAtMs: "2",
+          archivedAtMs: null,
+          deletedAtMs: null,
+        },
+      ],
+    });
+    mocks.archiveArea.mockResolvedValue({
+      status: "ok",
+      data: {
+        data: {},
+        operationId: "area-archive",
+        affectedEntityIds: [],
+        resultingRevisions: [],
+        domainEventIds: [],
+        undoBatchId: "undo-archive",
+      },
+    });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Archive" }));
+
+    expect(mocks.archiveArea).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "018f0000-0000-7000-8000-000000000001",
+        expectedRevision: 3,
+      }),
+    );
   });
 });

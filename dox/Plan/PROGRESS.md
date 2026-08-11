@@ -7,6 +7,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 ## Current delivery
 
 - In progress — F0 Foundation completion: added append-only migration 2 for canonical settings, policy/job/cursor persistence foundations, typed settings IPC, first-paint locale/theme bootstrap, real typed routes, and a refactored Area route. Native credential storage, generic lifecycle safety, full route registry, and Windows evidence remain pending.
+- Completed — F0 Area lifecycle vertical slice: archive, Trash, restore, and undo are revision-checked Core operations with real React controls and a Trash route. The lifecycle implementation is currently proven for Areas and will be generalized before M3 entities are added.
 
 - Completed — Read all 12 DOX source contracts and inventory their product, data, architecture, security, UX, i18n, test, and delivery requirements.
 - Completed — Recursively inspect UI V001. It contains only the El Messiri font and an empty `ui install.md`; no implementation/screens/assets are available.
@@ -52,6 +53,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 ## Evidence log
 
 - F0 settings/routing slice verification: `pnpm contracts:check`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test`, `pnpm build`, `cargo fmt --check`, and Clippy with warnings denied passed. JavaScript tests: 4 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 13 passed, 0 failed. `CI=true pnpm tauri build` produced a fresh macOS ARM64 DMG; strict code-sign verification passed and its SHA-256 is `7050712f141420003a6602e7aa94d244938e19eec06d7d2b4e81e784c3af6175`.
+- F0 Area lifecycle verification: generated contracts, type checking, linting, formatting, renderer build, and Clippy with warnings denied passed. JavaScript tests: 5 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 14 passed, 0 failed. `CI=true pnpm tauri build` produced a fresh verified macOS ARM64 DMG with SHA-256 `81dcd2d77f6efce32bea1989bee4de3269efce58c0660e9d2ef87d5cdf70750d`.
 
 - Source counts: DOX 12 files / approximately 352 KiB; UI V001 2 files / approximately 140 KiB; Full App initially empty.
 - Git: `origin=https://github.com/abdullahahmed-haq/LifeOS.git`; remote initially empty; GitHub CLI authenticated as `abdullahahmed-haq`.

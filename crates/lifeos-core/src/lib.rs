@@ -1,9 +1,9 @@
 use std::{path::Path, sync::Mutex};
 
 use lifeos_domain::{
-    ActionReceipt, AppError, AppSettings, Area, AreaVersion, CONTRACT_VERSION, CreateAreaRequest,
-    HealthSnapshot, SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
-    UpdateAreaRequest,
+    ActionReceipt, AppError, AppSettings, Area, AreaLifecycleRequest, AreaVersion,
+    CONTRACT_VERSION, CreateAreaRequest, HealthSnapshot, SearchRequest, SearchResult, UndoRequest,
+    UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest,
 };
 use lifeos_store::EntityStore;
 
@@ -46,6 +46,12 @@ impl ApplicationCore {
     pub fn list_areas(&self) -> Result<Vec<Area>, AppError> {
         self.store.lock().map_err(|_| internal())?.list_areas()
     }
+    pub fn list_trashed_areas(&self) -> Result<Vec<Area>, AppError> {
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .list_trashed_areas()
+    }
     pub fn create_area(&self, request: CreateAreaRequest) -> Result<ActionReceipt<Area>, AppError> {
         let title = lifeos_domain::validate_title(&request.title)?;
         self.store
@@ -58,6 +64,36 @@ impl ApplicationCore {
         self.store.lock().map_err(|_| internal())?.update_area(
             request.id,
             title,
+            request.expected_revision,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn archive_area(
+        &self,
+        request: AreaLifecycleRequest,
+    ) -> Result<ActionReceipt<Area>, AppError> {
+        self.store.lock().map_err(|_| internal())?.archive_area(
+            request.id,
+            request.expected_revision,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn trash_area(
+        &self,
+        request: AreaLifecycleRequest,
+    ) -> Result<ActionReceipt<Area>, AppError> {
+        self.store.lock().map_err(|_| internal())?.trash_area(
+            request.id,
+            request.expected_revision,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn restore_area(
+        &self,
+        request: AreaLifecycleRequest,
+    ) -> Result<ActionReceipt<Area>, AppError> {
+        self.store.lock().map_err(|_| internal())?.restore_area(
+            request.id,
             request.expected_revision,
             operation_id(request.operation_id),
         )

@@ -22,6 +22,12 @@ Status: accepted for F0
 
 TanStack Router is now the renderer's navigation authority. The Area page remains the root route to preserve the current runnable flow while Home, Today, Projects, Settings, and integration entry points are routable typed surfaces. Route placeholders are explicitly in-progress and do not count as feature delivery. New screens must be implemented as route-level domain slices rather than extending a single application file.
 
+## D-029 — Area lifecycle as the generic-safety proving ground
+
+Status: accepted for F0
+
+Area archive, Trash, restore, and undo now use the same revision-checked Core transaction as create/update. Lifecycle state is included in Area version snapshots, removed from the active lexical projection while inactive, restored to the projection only when active, and recorded through domain/audit events. This is the proving ground for the generic lifecycle module; subsequent entities must reuse the same lifecycle semantics rather than replicate UI-only deletion behavior.
+
 ## D-019 — Verified JavaScript toolchain pin
 
 The running development host is Node `24.14.0` and pnpm `11.16.0`. Pin those exact versions in `.node-version` and `package.json` rather than retaining a stale Node 22 observation that causes every package command to warn. CI uses the same declared versions. Reassess this pin before a supported-platform release.

@@ -223,7 +223,16 @@ impl EntityStore {
     }
 
     pub fn list_areas(&self) -> Result<Vec<Area>, AppError> {
-        let mut statement = self.connection.prepare("SELECT id,title,revision,created_at,updated_at FROM entities WHERE type_id=?1 AND deleted_at IS NULL ORDER BY updated_at DESC").map_err(internal)?;
+        let mut statement = self.connection.prepare("SELECT id,title,revision,created_at,updated_at,archived_at,deleted_at FROM entities WHERE type_id=?1 AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC").map_err(internal)?;
+        statement
+            .query_map([AREA_TYPE_ID], row_area)
+            .map_err(internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(internal)
+    }
+
+    pub fn list_trashed_areas(&self) -> Result<Vec<Area>, AppError> {
+        let mut statement = self.connection.prepare("SELECT id,title,revision,created_at,updated_at,archived_at,deleted_at FROM entities WHERE type_id=?1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC").map_err(internal)?;
         statement
             .query_map([AREA_TYPE_ID], row_area)
             .map_err(internal)?
@@ -243,6 +252,8 @@ impl EntityStore {
             revision: 1,
             created_at_ms: now.to_string(),
             updated_at_ms: now.to_string(),
+            archived_at_ms: None,
+            deleted_at_ms: None,
         };
         let undo_batch_id = Uuid::now_v7().to_string();
         let event_id = Uuid::now_v7().to_string();
@@ -326,6 +337,8 @@ impl EntityStore {
             revision: current.revision + 1,
             created_at_ms: current.created_at_ms,
             updated_at_ms: now.to_string(),
+            archived_at_ms: current.archived_at_ms,
+            deleted_at_ms: current.deleted_at_ms,
         };
         let undo_batch_id = Uuid::now_v7().to_string();
         let event_id = Uuid::now_v7().to_string();
@@ -373,6 +386,161 @@ impl EntityStore {
         })
     }
 
+    pub fn archive_area(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Area>, AppError> {
+        self.change_area_lifecycle(
+            id,
+            expected_revision,
+            operation_id,
+            true,
+            false,
+            "area.archived",
+        )
+    }
+
+    pub fn trash_area(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Area>, AppError> {
+        self.change_area_lifecycle(
+            id,
+            expected_revision,
+            operation_id,
+            false,
+            true,
+            "area.trashed",
+        )
+    }
+
+    pub fn restore_area(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Area>, AppError> {
+        self.change_area_lifecycle(
+            id,
+            expected_revision,
+            operation_id,
+            false,
+            false,
+            "area.restored",
+        )
+    }
+
+    fn change_area_lifecycle(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+        archived: bool,
+        deleted: bool,
+        action: &str,
+    ) -> Result<ActionReceipt<Area>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let current = get_any_area_in_transaction(&tx, &id)?.ok_or(AppError::NotFound {
+            entity_id: id.clone(),
+        })?;
+        if current.revision != expected_revision {
+            return Err(AppError::ConflictRevision {
+                entity_id: id,
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        if current.archived_at_ms.is_some() == archived
+            && current.deleted_at_ms.is_some() == deleted
+        {
+            return Err(AppError::Validation {
+                field: "lifecycle".into(),
+                reason: "already in the requested lifecycle state".into(),
+            });
+        }
+        let now = now();
+        let next = Area {
+            id: current.id.clone(),
+            title: current.title.clone(),
+            revision: current.revision + 1,
+            created_at_ms: current.created_at_ms.clone(),
+            updated_at_ms: now.to_string(),
+            archived_at_ms: archived.then(|| now.to_string()),
+            deleted_at_ms: deleted.then(|| now.to_string()),
+        };
+        let changed = tx
+            .execute(
+                "UPDATE entities SET archived_at=?1,deleted_at=?2,updated_at=?3,revision=?4,updated_by_type='user',updated_by_id=?5 WHERE id=?6 AND revision=?7",
+                params![
+                    next.archived_at_ms.as_deref(),
+                    next.deleted_at_ms.as_deref(),
+                    now,
+                    next.revision,
+                    DEFAULT_USER_ID,
+                    next.id,
+                    current.revision
+                ],
+            )
+            .map_err(internal)?;
+        if changed != 1 {
+            return Err(AppError::ConflictRevision {
+                entity_id: next.id,
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&next.id])
+            .map_err(internal)?;
+        if !archived && !deleted {
+            insert_area_search(&tx, &next)?;
+        }
+        let undo_batch_id = Uuid::now_v7().to_string();
+        let event_id = Uuid::now_v7().to_string();
+        write_history(
+            &tx,
+            &next,
+            action,
+            &operation_id,
+            &undo_batch_id,
+            &event_id,
+            now,
+        )?;
+        tx.execute(
+            "INSERT INTO undo_operations VALUES (?1,?2,0,'area.restore_lifecycle',?3)",
+            params![
+                Uuid::now_v7().to_string(),
+                undo_batch_id,
+                serde_json::json!({
+                    "entityId": current.id,
+                    "expectedRevision": next.revision,
+                    "archived": current.archived_at_ms.is_some(),
+                    "deleted": current.deleted_at_ms.is_some()
+                })
+                .to_string()
+            ],
+        )
+        .map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(ActionReceipt {
+            data: next.clone(),
+            operation_id,
+            affected_entity_ids: vec![next.id.clone()],
+            resulting_revisions: vec![EntityRevision {
+                entity_id: next.id,
+                revision: next.revision,
+            }],
+            domain_event_ids: vec![event_id],
+            undo_batch_id: Some(undo_batch_id),
+        })
+    }
+
     pub fn undo(
         &mut self,
         batch: String,
@@ -382,7 +550,7 @@ impl EntityStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(internal)?;
-        let payload: String = tx.query_row("SELECT payload_json FROM undo_operations WHERE undo_batch_id=?1 ORDER BY ordinal LIMIT 1", [&batch], |r| r.get(0)).optional().map_err(internal)?.ok_or(AppError::NotFound { entity_id: batch.clone() })?;
+        let (action_key, payload): (String, String) = tx.query_row("SELECT action_key,payload_json FROM undo_operations WHERE undo_batch_id=?1 ORDER BY ordinal LIMIT 1", [&batch], |r| Ok((r.get(0)?, r.get(1)?))).optional().map_err(internal)?.ok_or(AppError::NotFound { entity_id: batch.clone() })?;
         let available: String = tx
             .query_row(
                 "SELECT status FROM undo_batches WHERE id=?1",
@@ -409,7 +577,7 @@ impl EntityStore {
                 .ok_or_else(|| AppError::IntegrityFailure {
                     reason: "invalid undo revision".into(),
                 })? as i32;
-        let current = get_area_in_transaction(&tx, &id)?.ok_or(AppError::NotFound {
+        let current = get_any_area_in_transaction(&tx, &id)?.ok_or(AppError::NotFound {
             entity_id: id.clone(),
         })?;
         if current.revision != expected {
@@ -423,37 +591,69 @@ impl EntityStore {
         let revision = expected + 1;
         let event_id = Uuid::now_v7().to_string();
         let restored_title = value["title"].as_str();
-        let changed_fields = if restored_title.is_some() {
-            "[\"title\"]"
-        } else {
-            "[\"deletedAt\"]"
+        let (title, archived, deleted, changed_fields) = match action_key.as_str() {
+            "area.restore_title" => (
+                restored_title
+                    .ok_or_else(|| AppError::IntegrityFailure {
+                        reason: "invalid undo title".into(),
+                    })?
+                    .to_owned(),
+                current.archived_at_ms.is_some(),
+                current.deleted_at_ms.is_some(),
+                "[\"title\"]",
+            ),
+            "area.trash" => (current.title.clone(), false, true, "[\"deletedAt\"]"),
+            "area.restore_lifecycle" => (
+                current.title.clone(),
+                value["archived"]
+                    .as_bool()
+                    .ok_or_else(|| AppError::IntegrityFailure {
+                        reason: "invalid undo archived state".into(),
+                    })?,
+                value["deleted"]
+                    .as_bool()
+                    .ok_or_else(|| AppError::IntegrityFailure {
+                        reason: "invalid undo deleted state".into(),
+                    })?,
+                "[\"archivedAt\",\"deletedAt\"]",
+            ),
+            _ => {
+                return Err(AppError::IntegrityFailure {
+                    reason: "unsupported undo action".into(),
+                });
+            }
         };
-        let updated = if let Some(title) = restored_title {
-            let updated = tx
-                .execute(
-                    "UPDATE entities SET title=?1,updated_at=?2,revision=?3,updated_by_type='user',updated_by_id=?4 WHERE id=?5 AND revision=?6",
-                    params![title, now, revision, DEFAULT_USER_ID, id, expected],
-                )
-                .map_err(internal)?;
-            tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&id])
-                .map_err(internal)?;
-            tx.execute(
-                "INSERT INTO entity_search VALUES (?1,?2,'area',?3,?4)",
-                params![id, DEFAULT_WORKSPACE_ID, title, normalize_for_search(title)],
+        let archived_at_ms = archived.then(|| now.to_string());
+        let deleted_at_ms = deleted.then(|| now.to_string());
+        let updated = tx
+            .execute(
+                "UPDATE entities SET title=?1,archived_at=?2,deleted_at=?3,updated_at=?4,revision=?5,updated_by_type='user',updated_by_id=?6 WHERE id=?7 AND revision=?8",
+                params![
+                    title,
+                    archived_at_ms.as_deref(),
+                    deleted_at_ms.as_deref(),
+                    now,
+                    revision,
+                    DEFAULT_USER_ID,
+                    id,
+                    expected
+                ],
             )
             .map_err(internal)?;
-            updated
-        } else {
-            let updated = tx
-                .execute(
-                    "UPDATE entities SET deleted_at=?1,updated_at=?1,revision=?2,updated_by_type='user',updated_by_id=?3 WHERE id=?4 AND revision=?5",
-                    params![now, revision, DEFAULT_USER_ID, id, expected],
-                )
-                .map_err(internal)?;
-            tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&id])
-                .map_err(internal)?;
-            updated
+        tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&id])
+            .map_err(internal)?;
+        let resulting_area = Area {
+            id: current.id.clone(),
+            title,
+            revision,
+            created_at_ms: current.created_at_ms,
+            updated_at_ms: now.to_string(),
+            archived_at_ms,
+            deleted_at_ms,
         };
+        if resulting_area.archived_at_ms.is_none() && resulting_area.deleted_at_ms.is_none() {
+            insert_area_search(&tx, &resulting_area)?;
+        }
         if updated != 1 {
             return Err(AppError::ConflictRevision {
                 entity_id: id,
@@ -472,13 +672,6 @@ impl EntityStore {
                 reason: "already undone".into(),
             });
         }
-        let resulting_area = Area {
-            id: current.id.clone(),
-            title: restored_title.unwrap_or(&current.title).to_owned(),
-            revision,
-            created_at_ms: current.created_at_ms,
-            updated_at_ms: now.to_string(),
-        };
         write_version(&tx, &resulting_area, changed_fields, &operation_id, now)?;
         tx.execute("INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,'undo.executed',?3,?4,'{}','user',?5,?6,?7)", params![event_id,DEFAULT_WORKSPACE_ID,id,revision,DEFAULT_USER_ID,operation_id,now]).map_err(internal)?;
         tx.execute(
@@ -631,6 +824,20 @@ fn write_history(
             operation,
             batch,
             now
+        ],
+    )
+    .map_err(internal)?;
+    Ok(())
+}
+
+fn insert_area_search(tx: &rusqlite::Transaction<'_>, area: &Area) -> Result<(), AppError> {
+    tx.execute(
+        "INSERT INTO entity_search VALUES (?1,?2,'area',?3,?4)",
+        params![
+            area.id,
+            DEFAULT_WORKSPACE_ID,
+            area.title,
+            normalize_for_search(&area.title)
         ],
     )
     .map_err(internal)?;
@@ -799,8 +1006,16 @@ fn get_area_in_transaction(
     tx: &rusqlite::Transaction<'_>,
     id: &str,
 ) -> Result<Option<Area>, AppError> {
-    tx.query_row("SELECT id,title,revision,created_at,updated_at FROM entities WHERE id=?1 AND type_id=?2 AND deleted_at IS NULL", params![id,AREA_TYPE_ID], row_area).optional().map_err(internal)
+    tx.query_row("SELECT id,title,revision,created_at,updated_at,archived_at,deleted_at FROM entities WHERE id=?1 AND type_id=?2 AND deleted_at IS NULL AND archived_at IS NULL", params![id,AREA_TYPE_ID], row_area).optional().map_err(internal)
 }
+
+fn get_any_area_in_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+) -> Result<Option<Area>, AppError> {
+    tx.query_row("SELECT id,title,revision,created_at,updated_at,archived_at,deleted_at FROM entities WHERE id=?1 AND type_id=?2", params![id,AREA_TYPE_ID], row_area).optional().map_err(internal)
+}
+
 fn row_area(row: &rusqlite::Row<'_>) -> rusqlite::Result<Area> {
     Ok(Area {
         id: row.get(0)?,
@@ -808,6 +1023,8 @@ fn row_area(row: &rusqlite::Row<'_>) -> rusqlite::Result<Area> {
         revision: row.get(2)?,
         created_at_ms: row.get::<_, i64>(3)?.to_string(),
         updated_at_ms: row.get::<_, i64>(4)?.to_string(),
+        archived_at_ms: row.get::<_, Option<i64>>(5)?.map(|value| value.to_string()),
+        deleted_at_ms: row.get::<_, Option<i64>>(6)?.map(|value| value.to_string()),
     })
 }
 fn now() -> i64 {
@@ -936,5 +1153,41 @@ mod tests {
             )
             .unwrap();
         assert_eq!(audit_count, 1);
+    }
+
+    #[test]
+    fn archives_trashes_restores_and_undoes_an_area_without_losing_history() {
+        let dir = tempdir().unwrap();
+        let mut store = EntityStore::open(dir.path().join("lifecycle.db")).unwrap();
+        let created = store
+            .create_area("Health".into(), "area-create".into())
+            .unwrap();
+        let archived = store
+            .archive_area(
+                created.data.id.clone(),
+                created.data.revision,
+                "area-archive".into(),
+            )
+            .unwrap();
+        assert!(store.list_areas().unwrap().is_empty());
+        let restored = store
+            .undo(archived.undo_batch_id.unwrap(), "undo-archive".into())
+            .unwrap();
+        assert_eq!(restored.data.revision, 3);
+        let trashed = store
+            .trash_area(created.data.id.clone(), 3, "area-trash".into())
+            .unwrap();
+        assert!(store.list_areas().unwrap().is_empty());
+        assert_eq!(store.list_trashed_areas().unwrap().len(), 1);
+        let restored = store
+            .restore_area(
+                created.data.id.clone(),
+                trashed.data.revision,
+                "area-restore".into(),
+            )
+            .unwrap();
+        assert_eq!(restored.data.revision, 5);
+        assert_eq!(store.list_areas().unwrap()[0].title, "Health");
+        assert_eq!(store.area_history(&created.data.id).unwrap().len(), 5);
     }
 }

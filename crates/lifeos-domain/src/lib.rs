@@ -44,6 +44,8 @@ pub struct Area {
     pub revision: i32,
     pub created_at_ms: String,
     pub updated_at_ms: String,
+    pub archived_at_ms: Option<String>,
+    pub deleted_at_ms: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
@@ -58,6 +60,14 @@ pub struct CreateAreaRequest {
 pub struct UpdateAreaRequest {
     pub id: String,
     pub title: String,
+    pub expected_revision: i32,
+    pub operation_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AreaLifecycleRequest {
+    pub id: String,
     pub expected_revision: i32,
     pub operation_id: String,
 }

@@ -9,8 +9,12 @@ export const commands = {
 	appSettings: () => typedError<AppSettings, AppError>(__TAURI_INVOKE("app_settings")),
 	updateAppSettings: (request: UpdateAppSettingsRequest) => typedError<ActionReceipt<AppSettings>, AppError>(__TAURI_INVOKE("update_app_settings", { request })),
 	listAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_areas")),
+	listTrashedAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_trashed_areas")),
 	createArea: (request: CreateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("create_area", { request })),
 	updateArea: (request: UpdateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("update_area", { request })),
+	archiveArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("archive_area", { request })),
+	trashArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("trash_area", { request })),
+	restoreArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("restore_area", { request })),
 	undoAction: (request: UndoRequest) => typedError<ActionReceipt<UndoResult>, AppError>(__TAURI_INVOKE("undo_action", { request })),
 	searchEntities: (request: SearchRequest) => typedError<SearchResult[], AppError>(__TAURI_INVOKE("search_entities", { request })),
 	foundationCheck: () => typedError<HealthSnapshot, AppError>(__TAURI_INVOKE("foundation_check")),
@@ -64,6 +68,14 @@ export type Area = {
 	revision: number,
 	createdAtMs: string,
 	updatedAtMs: string,
+	archivedAtMs: string | null,
+	deletedAtMs: string | null,
+};
+
+export type AreaLifecycleRequest = {
+	id: string,
+	expectedRevision: number,
+	operationId: string,
 };
 
 export type CreateAreaRequest = {

@@ -51,6 +51,34 @@ export function AreaScreen() {
       void queryClient.invalidateQueries({ queryKey: ["areas"] });
     },
   });
+  const lifecycle = useMutation({
+    mutationFn: ({
+      id,
+      revision,
+      action,
+    }: {
+      id: string;
+      revision: number;
+      action: "archive" | "trash";
+    }) =>
+      unwrapCommand(
+        action === "archive"
+          ? commands.archiveArea({
+              id,
+              expectedRevision: revision,
+              operationId: crypto.randomUUID(),
+            })
+          : commands.trashArea({
+              id,
+              expectedRevision: revision,
+              operationId: crypto.randomUUID(),
+            }),
+      ),
+    onSuccess: (receipt) => {
+      setUndo(receipt.undoBatchId);
+      void queryClient.invalidateQueries({ queryKey: ["areas"] });
+    },
+  });
 
   return (
     <section className="canvas" aria-labelledby="areas-heading">
@@ -112,6 +140,30 @@ export function AreaScreen() {
                   { revision: area.revision },
                 )}
               </small>
+              <div className="area-actions">
+                <Button
+                  onPress={() =>
+                    lifecycle.mutate({
+                      id: area.id,
+                      revision: area.revision,
+                      action: "archive",
+                    })
+                  }
+                >
+                  {intl.formatMessage({ id: "area.archive" })}
+                </Button>
+                <Button
+                  onPress={() =>
+                    lifecycle.mutate({
+                      id: area.id,
+                      revision: area.revision,
+                      action: "trash",
+                    })
+                  }
+                >
+                  {intl.formatMessage({ id: "area.trash" })}
+                </Button>
+              </div>
             </article>
           ))}
         </div>

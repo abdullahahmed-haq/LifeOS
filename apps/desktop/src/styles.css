@@ -193,6 +193,22 @@ body {
 .area-card h2 {
   margin: 18px 0 6px;
 }
+.area-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 18px;
+}
+.area-actions button,
+.area-card > button {
+  border: 1px solid #b7c7c5;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  padding: 8px 10px;
+  font: inherit;
+  cursor: pointer;
+}
 .undo-toast {
   position: fixed;
   inset-inline-end: 28px;

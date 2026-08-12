@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   listAreas: vi.fn(),
   listGoals: vi.fn(),
   listProjects: vi.fn(),
+  listArchivedProjects: vi.fn(),
+  listTrashedProjects: vi.fn(),
   listArchivedGoals: vi.fn(),
   listTrashedGoals: vi.fn(),
   listArchivedAreas: vi.fn(),
@@ -24,6 +26,10 @@ const mocks = vi.hoisted(() => ({
   createArea: vi.fn(),
   createGoal: vi.fn(),
   createProject: vi.fn(),
+  updateProject: vi.fn(),
+  archiveProject: vi.fn(),
+  trashProject: vi.fn(),
+  restoreProject: vi.fn(),
   updateGoal: vi.fn(),
   archiveGoal: vi.fn(),
   trashGoal: vi.fn(),
@@ -41,6 +47,8 @@ vi.mock("@lifeos/contracts/bindings", () => ({
     listAreas: mocks.listAreas,
     listGoals: mocks.listGoals,
     listProjects: mocks.listProjects,
+    listArchivedProjects: mocks.listArchivedProjects,
+    listTrashedProjects: mocks.listTrashedProjects,
     listArchivedGoals: mocks.listArchivedGoals,
     listTrashedGoals: mocks.listTrashedGoals,
     listArchivedAreas: mocks.listArchivedAreas,
@@ -48,6 +56,10 @@ vi.mock("@lifeos/contracts/bindings", () => ({
     createArea: mocks.createArea,
     createGoal: mocks.createGoal,
     createProject: mocks.createProject,
+    updateProject: mocks.updateProject,
+    archiveProject: mocks.archiveProject,
+    trashProject: mocks.trashProject,
+    restoreProject: mocks.restoreProject,
     updateGoal: mocks.updateGoal,
     archiveGoal: mocks.archiveGoal,
     trashGoal: mocks.trashGoal,
@@ -105,6 +117,8 @@ describe("LifeOS application shell", () => {
     mocks.listAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.listGoals.mockResolvedValue({ status: "ok", data: [] });
     mocks.listProjects.mockResolvedValue({ status: "ok", data: [] });
+    mocks.listArchivedProjects.mockResolvedValue({ status: "ok", data: [] });
+    mocks.listTrashedProjects.mockResolvedValue({ status: "ok", data: [] });
     mocks.listArchivedGoals.mockResolvedValue({ status: "ok", data: [] });
     mocks.listTrashedGoals.mockResolvedValue({ status: "ok", data: [] });
     mocks.listArchivedAreas.mockResolvedValue({ status: "ok", data: [] });
@@ -112,6 +126,10 @@ describe("LifeOS application shell", () => {
     mocks.createArea.mockReset();
     mocks.createGoal.mockReset();
     mocks.createProject.mockReset();
+    mocks.updateProject.mockReset();
+    mocks.archiveProject.mockReset();
+    mocks.trashProject.mockReset();
+    mocks.restoreProject.mockReset();
     mocks.updateGoal.mockReset();
     mocks.archiveGoal.mockReset();
     mocks.trashGoal.mockReset();
@@ -520,6 +538,93 @@ describe("LifeOS application shell", () => {
     );
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Project created",
+    );
+  });
+
+  it("edits and archives a Project with its canonical revision", async () => {
+    const user = userEvent.setup();
+    mocks.listProjects.mockResolvedValue({
+      status: "ok",
+      data: [
+        {
+          id: "018f0000-0000-7000-8000-000000000008",
+          title: "LifeOS",
+          parentProjectId: null,
+          status: "active",
+          priority: null,
+          startDate: null,
+          targetDate: null,
+          revision: 4,
+          createdAtMs: "1",
+          updatedAtMs: "2",
+          archivedAtMs: null,
+          deletedAtMs: null,
+        },
+      ],
+    });
+    mocks.updateProject.mockResolvedValue({
+      status: "ok",
+      data: {
+        data: {
+          id: "018f0000-0000-7000-8000-000000000008",
+          title: "LifeOS V0.1",
+          parentProjectId: null,
+          status: "active",
+          priority: 90,
+          startDate: null,
+          targetDate: null,
+          revision: 5,
+          createdAtMs: "1",
+          updatedAtMs: "3",
+          archivedAtMs: null,
+          deletedAtMs: null,
+        },
+        operationId: "project-update",
+        affectedEntityIds: [],
+        resultingRevisions: [],
+        domainEventIds: [],
+        undoBatchId: "project-update-undo",
+      },
+    });
+    mocks.archiveProject.mockResolvedValue({
+      status: "ok",
+      data: {
+        data: {},
+        operationId: "project-archive",
+        affectedEntityIds: [],
+        resultingRevisions: [],
+        domainEventIds: [],
+        undoBatchId: "project-archive-undo",
+      },
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("link", { name: "Projects" }));
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const editForm = screen.getByRole("form", { name: "Edit project" });
+    const name = within(editForm).getByRole("textbox", {
+      name: "Project name",
+    });
+    await user.clear(name);
+    await user.type(name, "LifeOS V0.1");
+    await user.type(
+      within(editForm).getByRole("spinbutton", { name: "Priority" }),
+      "90",
+    );
+    await user.click(within(editForm).getByRole("button", { name: "Save" }));
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "018f0000-0000-7000-8000-000000000008",
+        title: "LifeOS V0.1",
+        priority: 90,
+        expectedRevision: 4,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(mocks.archiveProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "018f0000-0000-7000-8000-000000000008",
+        expectedRevision: 4,
+      }),
     );
   });
 

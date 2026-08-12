@@ -7,7 +7,8 @@ use lifeos_domain::{
     CreateAreaRequest, CreateGoalRequest, CreateProjectRequest, CredentialReference, Goal,
     HealthSnapshot, PermissionDecision, PermissionPolicy, Project, RevokeCredentialRequest,
     SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest, UndoResult,
-    UpdateAppSettingsRequest, UpdateAreaRequest, UpdateGoalRequest, UpsertPermissionPolicyRequest,
+    UpdateAppSettingsRequest, UpdateAreaRequest, UpdateGoalRequest, UpdateProjectRequest,
+    UpsertPermissionPolicyRequest,
 };
 use lifeos_safety::evaluate;
 use lifeos_store::EntityStore;
@@ -65,6 +66,18 @@ impl ApplicationCore {
     }
     pub fn list_projects(&self) -> Result<Vec<Project>, AppError> {
         self.store.lock().map_err(|_| internal())?.list_projects()
+    }
+    pub fn list_archived_projects(&self) -> Result<Vec<Project>, AppError> {
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .list_archived_projects()
+    }
+    pub fn list_trashed_projects(&self) -> Result<Vec<Project>, AppError> {
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .list_trashed_projects()
     }
     pub fn list_archived_goals(&self) -> Result<Vec<Goal>, AppError> {
         self.store
@@ -149,6 +162,56 @@ impl ApplicationCore {
             priority,
             start_date,
             target_date,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn update_project(
+        &self,
+        mut request: UpdateProjectRequest,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        self.authorize_local("project.update")?;
+        request.title = lifeos_domain::validate_title(&request.title)?;
+        let (start_date, target_date) =
+            lifeos_domain::validate_goal_dates(&request.start_date, &request.target_date)?;
+        request.start_date = start_date;
+        request.target_date = target_date;
+        request.priority = lifeos_domain::validate_priority(request.priority)?;
+        request.operation_id = operation_id(request.operation_id);
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .update_project(request)
+    }
+    pub fn archive_project(
+        &self,
+        request: AreaLifecycleRequest,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        self.authorize_local("project.archive")?;
+        self.store.lock().map_err(|_| internal())?.archive_project(
+            request.id,
+            request.expected_revision,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn trash_project(
+        &self,
+        request: AreaLifecycleRequest,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        self.authorize_local("project.trash")?;
+        self.store.lock().map_err(|_| internal())?.trash_project(
+            request.id,
+            request.expected_revision,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn restore_project(
+        &self,
+        request: AreaLifecycleRequest,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        self.authorize_local("project.restore")?;
+        self.store.lock().map_err(|_| internal())?.restore_project(
+            request.id,
+            request.expected_revision,
             operation_id(request.operation_id),
         )
     }
@@ -772,6 +835,60 @@ mod tests {
                 .unwrap(),
             vec![parent]
         );
+    }
+
+    #[test]
+    fn project_lifecycle_is_revision_checked_and_undoable() {
+        let directory = tempdir().unwrap();
+        let core = ApplicationCore::open(directory.path().join("project-lifecycle.db")).unwrap();
+        let created = core
+            .create_project(CreateProjectRequest {
+                title: "LifeOS".into(),
+                parent_project_id: None,
+                priority: None,
+                start_date: None,
+                target_date: None,
+                operation_id: "create".into(),
+            })
+            .unwrap()
+            .data;
+        let updated = core
+            .update_project(UpdateProjectRequest {
+                id: created.id.clone(),
+                title: "LifeOS V0.1".into(),
+                priority: Some(90),
+                start_date: Some("2026-08-12".into()),
+                target_date: Some("2026-09-12".into()),
+                expected_revision: created.revision,
+                operation_id: "update".into(),
+            })
+            .unwrap();
+        assert!(matches!(
+            core.archive_project(AreaLifecycleRequest {
+                id: created.id.clone(),
+                expected_revision: created.revision,
+                operation_id: "stale".into(),
+            }),
+            Err(AppError::ConflictRevision { .. })
+        ));
+        let archived = core
+            .archive_project(AreaLifecycleRequest {
+                id: created.id.clone(),
+                expected_revision: updated.data.revision,
+                operation_id: "archive".into(),
+            })
+            .unwrap();
+        assert!(core.list_projects().unwrap().is_empty());
+        assert_eq!(
+            core.list_archived_projects().unwrap(),
+            vec![archived.data.clone()]
+        );
+        core.undo(UndoRequest {
+            undo_batch_id: archived.undo_batch_id.unwrap(),
+            operation_id: "undo".into(),
+        })
+        .unwrap();
+        assert_eq!(core.list_projects().unwrap()[0].title, "LifeOS V0.1");
     }
 
     #[test]

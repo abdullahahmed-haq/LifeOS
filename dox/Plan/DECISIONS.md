@@ -139,6 +139,18 @@ the moved Project and affected parents, which will arrive in the next Project
 hierarchy slice. Goals and Areas are not structural parents; their links remain
 future semantic RelationGraph relations.
 
+## D-040 — Project lifecycle retains its structural parent
+
+Status: accepted for M3
+
+Project edit, archive, Trash, restore, and undo use the same canonical safety
+records as the Area and Goal reference slices. Edit intentionally changes only
+the Project's own descriptive planning fields (title, priority, and local
+dates); it does not move its parent. Lifecycle transitions retain the
+structural parent ID, so a restored Project returns to the same hierarchy.
+Existing-tree moves remain deferred until bounded recursive cycle detection and
+multi-entity revision rules are implemented.
+
 Use a pnpm workspace plus Cargo workspace with `apps/desktop`, deep Rust modules under `crates`, and shared TypeScript packages under `packages`. The Tauri host remains a thin adapter over `ApplicationCore`. The user-proposed structure is refined by separating domain, Core orchestration, store, search, safety, vault sync, and test support so dependencies point inward without proliferating pass-through layers.
 
 ## D-003 — Rust-to-TypeScript contracts

@@ -7,7 +7,7 @@ use lifeos_domain::{
     CreateProjectRequest, CredentialReference, Goal, HealthSnapshot, PermissionPolicy, Project,
     RevokeCredentialRequest, SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest,
     UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest, UpdateGoalRequest,
-    UpsertPermissionPolicyRequest,
+    UpdateProjectRequest, UpsertPermissionPolicyRequest,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -96,6 +96,16 @@ fn list_projects(state: State<'_, AppState>) -> Result<Vec<Project>, AppError> {
 }
 #[tauri::command]
 #[specta::specta]
+fn list_archived_projects(state: State<'_, AppState>) -> Result<Vec<Project>, AppError> {
+    state.core.list_archived_projects()
+}
+#[tauri::command]
+#[specta::specta]
+fn list_trashed_projects(state: State<'_, AppState>) -> Result<Vec<Project>, AppError> {
+    state.core.list_trashed_projects()
+}
+#[tauri::command]
+#[specta::specta]
 fn list_archived_goals(state: State<'_, AppState>) -> Result<Vec<Goal>, AppError> {
     state.core.list_archived_goals()
 }
@@ -137,6 +147,38 @@ fn create_project(
     request: CreateProjectRequest,
 ) -> Result<ActionReceipt<Project>, AppError> {
     state.core.create_project(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn update_project(
+    state: State<'_, AppState>,
+    request: UpdateProjectRequest,
+) -> Result<ActionReceipt<Project>, AppError> {
+    state.core.update_project(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn archive_project(
+    state: State<'_, AppState>,
+    request: AreaLifecycleRequest,
+) -> Result<ActionReceipt<Project>, AppError> {
+    state.core.archive_project(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn trash_project(
+    state: State<'_, AppState>,
+    request: AreaLifecycleRequest,
+) -> Result<ActionReceipt<Project>, AppError> {
+    state.core.trash_project(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn restore_project(
+    state: State<'_, AppState>,
+    request: AreaLifecycleRequest,
+) -> Result<ActionReceipt<Project>, AppError> {
+    state.core.restore_project(request)
 }
 #[tauri::command]
 #[specta::specta]
@@ -274,6 +316,8 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             list_areas,
             list_goals,
             list_projects,
+            list_archived_projects,
+            list_trashed_projects,
             list_archived_goals,
             list_trashed_goals,
             list_trashed_areas,
@@ -281,6 +325,10 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             create_area,
             create_goal,
             create_project,
+            update_project,
+            archive_project,
+            trash_project,
+            restore_project,
             update_goal,
             archive_goal,
             trash_goal,

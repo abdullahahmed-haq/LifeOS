@@ -9,6 +9,7 @@ use lifeos_domain::{
     CredentialReference, DEFAULT_DEVICE_ID, DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, EntityRevision,
     GOAL_TYPE_ID, Goal, GoalHorizon, HealthSnapshot, PROJECT_TYPE_ID, PermissionDecision,
     PermissionPolicy, Project, SearchResult, ThemePreference, UndoResult, UpdateGoalRequest,
+    UpdateProjectRequest,
 };
 use lifeos_search::{fts_query, normalize_for_search};
 use rusqlite::{
@@ -584,8 +585,20 @@ impl EntityStore {
     }
 
     pub fn list_projects(&self) -> Result<Vec<Project>, AppError> {
+        self.list_projects_by_lifecycle("e.deleted_at IS NULL AND e.archived_at IS NULL")
+    }
+
+    pub fn list_archived_projects(&self) -> Result<Vec<Project>, AppError> {
+        self.list_projects_by_lifecycle("e.archived_at IS NOT NULL AND e.deleted_at IS NULL")
+    }
+
+    pub fn list_trashed_projects(&self) -> Result<Vec<Project>, AppError> {
+        self.list_projects_by_lifecycle("e.deleted_at IS NOT NULL")
+    }
+
+    fn list_projects_by_lifecycle(&self, predicate: &str) -> Result<Vec<Project>, AppError> {
         let mut statement = self.connection.prepare(
-            "SELECT e.id,e.title,p.parent_project_id,p.status,p.priority,p.start_date,p.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN projects p ON p.entity_id=e.id WHERE e.workspace_id=?1 AND e.type_id=?2 AND e.deleted_at IS NULL AND e.archived_at IS NULL ORDER BY p.sort_rank,e.updated_at DESC,e.id DESC",
+            &format!("SELECT e.id,e.title,p.parent_project_id,p.status,p.priority,p.start_date,p.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN projects p ON p.entity_id=e.id WHERE e.workspace_id=?1 AND e.type_id=?2 AND {predicate} ORDER BY p.sort_rank,e.updated_at DESC,e.id DESC"),
         ).map_err(internal)?;
         statement
             .query_map(params![DEFAULT_WORKSPACE_ID, PROJECT_TYPE_ID], row_project)
@@ -860,6 +873,193 @@ impl EntityStore {
             event_id,
             undo_batch_id,
         ))
+    }
+
+    pub fn update_project(
+        &mut self,
+        request: UpdateProjectRequest,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let current =
+            get_active_project_in_transaction(&tx, &request.id)?.ok_or(AppError::NotFound {
+                entity_id: request.id.clone(),
+            })?;
+        if current.revision != request.expected_revision {
+            return Err(AppError::ConflictRevision {
+                entity_id: request.id,
+                expected: request.expected_revision,
+                actual: current.revision,
+            });
+        }
+        let now = now();
+        let next = Project {
+            title: request.title,
+            priority: request.priority,
+            start_date: request.start_date,
+            target_date: request.target_date,
+            revision: current.revision + 1,
+            updated_at_ms: now.to_string(),
+            ..current.clone()
+        };
+        let changed = tx.execute("UPDATE entities SET title=?1,updated_at=?2,revision=?3,updated_by_type='user',updated_by_id=?4 WHERE id=?5 AND revision=?6", params![next.title,now,next.revision,DEFAULT_USER_ID,next.id,current.revision]).map_err(internal)?;
+        if changed != 1 {
+            return Err(AppError::ConflictRevision {
+                entity_id: next.id,
+                expected: request.expected_revision,
+                actual: current.revision,
+            });
+        }
+        tx.execute(
+            "UPDATE projects SET priority=?1,start_date=?2,target_date=?3 WHERE entity_id=?4",
+            params![next.priority, next.start_date, next.target_date, next.id],
+        )
+        .map_err(internal)?;
+        tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&next.id])
+            .map_err(internal)?;
+        insert_project_search(&tx, &next)?;
+        let undo_batch_id = Uuid::now_v7().to_string();
+        let event_id = Uuid::now_v7().to_string();
+        write_project_history(
+            &tx,
+            &next,
+            "project.updated",
+            &request.operation_id,
+            &undo_batch_id,
+            &event_id,
+            now,
+        )?;
+        tx.execute("INSERT INTO undo_operations VALUES (?1,?2,0,'project.restore_values',?3)", params![Uuid::now_v7().to_string(),undo_batch_id,serde_json::json!({"entityId":current.id,"expectedRevision":next.revision,"title":current.title,"priority":current.priority,"startDate":current.start_date,"targetDate":current.target_date}).to_string()]).map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(project_receipt(
+            next,
+            request.operation_id,
+            event_id,
+            undo_batch_id,
+        ))
+    }
+
+    pub fn archive_project(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        self.change_project_lifecycle(
+            id,
+            expected_revision,
+            operation_id,
+            true,
+            false,
+            "project.archived",
+        )
+    }
+
+    pub fn trash_project(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        self.change_project_lifecycle(
+            id,
+            expected_revision,
+            operation_id,
+            false,
+            true,
+            "project.trashed",
+        )
+    }
+
+    pub fn restore_project(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        self.change_project_lifecycle(
+            id,
+            expected_revision,
+            operation_id,
+            false,
+            false,
+            "project.restored",
+        )
+    }
+
+    fn change_project_lifecycle(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+        archived: bool,
+        deleted: bool,
+        action: &str,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let current = get_any_project_in_transaction(&tx, &id)?.ok_or(AppError::NotFound {
+            entity_id: id.clone(),
+        })?;
+        if current.revision != expected_revision {
+            return Err(AppError::ConflictRevision {
+                entity_id: id,
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        let state: (Option<i64>, Option<i64>) = tx
+            .query_row(
+                "SELECT archived_at,deleted_at FROM entities WHERE id=?1",
+                [&current.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(internal)?;
+        if state.0.is_some() == archived && state.1.is_some() == deleted {
+            return Err(AppError::Validation {
+                field: "lifecycle".into(),
+                reason: "already in the requested lifecycle state".into(),
+            });
+        }
+        let now = now();
+        let next = Project {
+            revision: current.revision + 1,
+            updated_at_ms: now.to_string(),
+            archived_at_ms: archived.then(|| now.to_string()),
+            deleted_at_ms: deleted.then(|| now.to_string()),
+            ..current.clone()
+        };
+        let changed = tx.execute("UPDATE entities SET archived_at=?1,deleted_at=?2,updated_at=?3,revision=?4,updated_by_type='user',updated_by_id=?5 WHERE id=?6 AND revision=?7", params![archived.then_some(now),deleted.then_some(now),now,next.revision,DEFAULT_USER_ID,next.id,current.revision]).map_err(internal)?;
+        if changed != 1 {
+            return Err(AppError::ConflictRevision {
+                entity_id: next.id,
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&next.id])
+            .map_err(internal)?;
+        if !archived && !deleted {
+            insert_project_search(&tx, &next)?;
+        }
+        let undo_batch_id = Uuid::now_v7().to_string();
+        let event_id = Uuid::now_v7().to_string();
+        write_project_history(
+            &tx,
+            &next,
+            action,
+            &operation_id,
+            &undo_batch_id,
+            &event_id,
+            now,
+        )?;
+        tx.execute("INSERT INTO undo_operations VALUES (?1,?2,0,'project.restore_lifecycle',?3)", params![Uuid::now_v7().to_string(),undo_batch_id,serde_json::json!({"entityId":current.id,"expectedRevision":next.revision,"archived":state.0.is_some(),"deleted":state.1.is_some()}).to_string()]).map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(project_receipt(next, operation_id, event_id, undo_batch_id))
     }
 
     pub fn update_goal(
@@ -1346,8 +1546,15 @@ impl EntityStore {
             return Ok(result);
         }
         if action_key.starts_with("project.") {
-            let result =
-                undo_project_operation(&tx, batch, operation_id, id, expected, &action_key)?;
+            let result = undo_project_operation(
+                &tx,
+                batch,
+                operation_id,
+                id,
+                expected,
+                &action_key,
+                &value,
+            )?;
             tx.commit().map_err(internal)?;
             return Ok(result);
         }
@@ -2319,12 +2526,8 @@ fn undo_project_operation(
     id: String,
     expected: i32,
     action_key: &str,
+    payload: &serde_json::Value,
 ) -> Result<ActionReceipt<UndoResult>, AppError> {
-    if action_key != "project.trash" {
-        return Err(AppError::IntegrityFailure {
-            reason: "unsupported undo action".into(),
-        });
-    }
     let current = get_any_project_in_transaction(tx, &id)?.ok_or(AppError::NotFound {
         entity_id: id.clone(),
     })?;
@@ -2335,12 +2538,60 @@ fn undo_project_operation(
             actual: current.revision,
         });
     }
+    let (title, priority, start_date, target_date, archived, deleted, changed_fields) =
+        match action_key {
+            "project.trash" => (
+                current.title.clone(),
+                current.priority,
+                current.start_date.clone(),
+                current.target_date.clone(),
+                false,
+                true,
+                "[\"deletedAt\"]",
+            ),
+            "project.restore_values" => (
+                payload["title"]
+                    .as_str()
+                    .ok_or_else(|| AppError::IntegrityFailure {
+                        reason: "invalid undo title".into(),
+                    })?
+                    .to_owned(),
+                payload["priority"].as_u64().map(|value| value as u8),
+                payload["startDate"].as_str().map(str::to_owned),
+                payload["targetDate"].as_str().map(str::to_owned),
+                current.archived_at_ms.is_some(),
+                current.deleted_at_ms.is_some(),
+                "[\"title\",\"priority\",\"startDate\",\"targetDate\"]",
+            ),
+            "project.restore_lifecycle" => (
+                current.title.clone(),
+                current.priority,
+                current.start_date.clone(),
+                current.target_date.clone(),
+                payload["archived"]
+                    .as_bool()
+                    .ok_or_else(|| AppError::IntegrityFailure {
+                        reason: "invalid undo archived state".into(),
+                    })?,
+                payload["deleted"]
+                    .as_bool()
+                    .ok_or_else(|| AppError::IntegrityFailure {
+                        reason: "invalid undo deleted state".into(),
+                    })?,
+                "[\"archivedAt\",\"deletedAt\"]",
+            ),
+            _ => {
+                return Err(AppError::IntegrityFailure {
+                    reason: "unsupported undo action".into(),
+                });
+            }
+        };
     let now = now();
     let revision = expected + 1;
     let changed = tx
         .execute(
-            "UPDATE entities SET deleted_at=?1,updated_at=?2,revision=?3,updated_by_type='user',updated_by_id=?4 WHERE id=?5 AND revision=?6",
-            params![now, now, revision, DEFAULT_USER_ID, id, expected],
+            "UPDATE entities SET title=?1,archived_at=?2,deleted_at=?3,updated_at=?4,revision=?5,updated_by_type='user',updated_by_id=?6 WHERE id=?7 AND revision=?8",
+            params![title, archived.then_some(now), deleted.then_some(now), now, revision, DEFAULT_USER_ID, id, expected],
         )
         .map_err(internal)?;
     if changed != 1 {
@@ -2352,6 +2603,11 @@ fn undo_project_operation(
     }
     tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&id])
         .map_err(internal)?;
+    tx.execute(
+        "UPDATE projects SET priority=?1,start_date=?2,target_date=?3 WHERE entity_id=?4",
+        params![priority, start_date, target_date, id],
+    )
+    .map_err(internal)?;
     let completed_batch = tx
         .execute(
             "UPDATE undo_batches SET status='undone',undone_at=?1 WHERE id=?2 AND status='available'",
@@ -2365,12 +2621,20 @@ fn undo_project_operation(
         });
     }
     let reverted = Project {
+        title,
+        priority,
+        start_date,
+        target_date,
         revision,
         updated_at_ms: now.to_string(),
-        deleted_at_ms: Some(now.to_string()),
+        archived_at_ms: archived.then(|| now.to_string()),
+        deleted_at_ms: deleted.then(|| now.to_string()),
         ..current
     };
-    write_project_version(tx, &reverted, "[\"deletedAt\"]", &operation_id, now)?;
+    if !archived && !deleted {
+        insert_project_search(tx, &reverted)?;
+    }
+    write_project_version(tx, &reverted, changed_fields, &operation_id, now)?;
     let event_id = Uuid::now_v7().to_string();
     tx.execute(
         "INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,'undo.executed',?3,?4,'{}','user',?5,?6,?7)",

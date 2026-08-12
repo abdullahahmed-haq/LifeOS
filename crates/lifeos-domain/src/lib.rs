@@ -225,6 +225,18 @@ pub struct CreateProjectRequest {
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateProjectRequest {
+    pub id: String,
+    pub title: String,
+    pub priority: Option<u8>,
+    pub start_date: Option<String>,
+    pub target_date: Option<String>,
+    pub expected_revision: i32,
+    pub operation_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct UndoRequest {
     pub undo_batch_id: String,
     pub operation_id: String,

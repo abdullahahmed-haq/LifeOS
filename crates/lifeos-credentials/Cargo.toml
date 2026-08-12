@@ -1,5 +1,5 @@
 [package]
-name = "lifeos-core"
+name = "lifeos-credentials"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -7,11 +7,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-lifeos-credentials = { path = "../lifeos-credentials" }
+keyring.workspace = true
 lifeos-domain = { path = "../lifeos-domain" }
-lifeos-safety = { path = "../lifeos-safety" }
-lifeos-store = { path = "../lifeos-store" }
-uuid.workspace = true
 
 [dev-dependencies]
-tempfile = "3.27.0"
+uuid.workspace = true

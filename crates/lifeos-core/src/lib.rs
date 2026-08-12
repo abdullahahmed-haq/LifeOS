@@ -1,22 +1,32 @@
 use std::{path::Path, sync::Mutex};
 
+use lifeos_credentials::{CredentialStore, NativeCredentialStore};
 use lifeos_domain::{
     ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaLifecycleRequest, AreaVersion,
-    CONTRACT_VERSION, CreateAreaRequest, HealthSnapshot, PermissionDecision, PermissionPolicy,
-    SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
-    UpdateAreaRequest, UpsertPermissionPolicyRequest,
+    CONTRACT_VERSION, CreateAreaRequest, CredentialReference, HealthSnapshot, PermissionDecision,
+    PermissionPolicy, RevokeCredentialRequest, SaveCredentialRequest, SearchRequest, SearchResult,
+    UndoRequest, UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest,
+    UpsertPermissionPolicyRequest,
 };
 use lifeos_safety::evaluate;
 use lifeos_store::EntityStore;
 
 pub struct ApplicationCore {
     store: Mutex<EntityStore>,
+    credentials: Box<dyn CredentialStore>,
 }
 
 impl ApplicationCore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, AppError> {
+        Self::open_with_credentials(path, Box::new(NativeCredentialStore))
+    }
+    pub fn open_with_credentials(
+        path: impl AsRef<Path>,
+        credentials: Box<dyn CredentialStore>,
+    ) -> Result<Self, AppError> {
         Ok(Self {
             store: Mutex::new(EntityStore::open(path)?),
+            credentials,
         })
     }
     pub fn health(&self) -> Result<HealthSnapshot, AppError> {
@@ -95,6 +105,64 @@ impl ApplicationCore {
             request.expected_revision,
             operation_id(request.operation_id),
         )
+    }
+    pub fn credential_references(&self) -> Result<Vec<CredentialReference>, AppError> {
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .credential_references()
+    }
+    pub fn save_credential(
+        &self,
+        request: SaveCredentialRequest,
+    ) -> Result<ActionReceipt<CredentialReference>, AppError> {
+        self.authorize_local("credential.save")?;
+        let kind = lifeos_domain::validate_credential_kind(&request.kind)?;
+        lifeos_domain::validate_secret(&request.secret)?;
+        let reference_id = uuid::Uuid::now_v7().to_string();
+        self.credentials.write(&reference_id, &request.secret)?;
+        let result = self
+            .store
+            .lock()
+            .map_err(|_| internal())?
+            .create_credential_reference(
+                reference_id.clone(),
+                kind,
+                operation_id(request.operation_id),
+            );
+        if result.is_err() {
+            let _ = self.credentials.revoke(&reference_id);
+        }
+        result
+    }
+    pub fn revoke_credential(
+        &self,
+        request: RevokeCredentialRequest,
+    ) -> Result<ActionReceipt<CredentialReference>, AppError> {
+        self.authorize_local("credential.revoke")?;
+        let current = self
+            .credential_references()?
+            .into_iter()
+            .find(|reference| reference.id == request.id)
+            .ok_or_else(|| AppError::NotFound {
+                entity_id: request.id.clone(),
+            })?;
+        if current.revision != request.expected_revision {
+            return Err(AppError::ConflictRevision {
+                entity_id: request.id,
+                expected: request.expected_revision,
+                actual: current.revision,
+            });
+        }
+        self.credentials.revoke(&current.id)?;
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .revoke_credential_reference(
+                current.id,
+                current.revision,
+                operation_id(request.operation_id),
+            )
     }
     pub fn archive_area(
         &self,
@@ -400,5 +468,63 @@ mod tests {
             Err(AppError::PermissionDenied { operation }) if operation == "area.create"
         ));
         assert!(core.list_areas().unwrap().is_empty());
+    }
+
+    #[test]
+    fn credential_secret_never_enters_the_canonical_database() {
+        let directory = tempdir().unwrap();
+        let database = directory.path().join("credentials.db");
+        let core = ApplicationCore::open_with_credentials(
+            &database,
+            Box::new(lifeos_credentials::MemoryCredentialStore::default()),
+        )
+        .unwrap();
+        let reference = core
+            .save_credential(SaveCredentialRequest {
+                kind: "ai.openai".into(),
+                secret: "this-must-never-be-in-sqlite".into(),
+                operation_id: "save-test-credential".into(),
+            })
+            .unwrap();
+
+        assert_eq!(reference.data.kind, "ai.openai");
+        assert_eq!(core.credential_references().unwrap(), vec![reference.data]);
+        drop(core);
+        let database_bytes = std::fs::read(database).unwrap();
+        assert!(!String::from_utf8_lossy(&database_bytes).contains("this-must-never-be-in-sqlite"));
+    }
+
+    #[test]
+    fn credential_revoke_removes_the_secret_and_versions_its_reference() {
+        let directory = tempdir().unwrap();
+        let store = lifeos_credentials::MemoryCredentialStore::default();
+        let core = ApplicationCore::open_with_credentials(
+            directory.path().join("revoke.db"),
+            Box::new(store.clone()),
+        )
+        .unwrap();
+        let created = core
+            .save_credential(SaveCredentialRequest {
+                kind: "mcp.token".into(),
+                secret: "revoke-me".into(),
+                operation_id: "save-for-revoke".into(),
+            })
+            .unwrap();
+        let reference_id = created.data.id.clone();
+        let revoked = core
+            .revoke_credential(RevokeCredentialRequest {
+                id: reference_id.clone(),
+                expected_revision: 1,
+                operation_id: "revoke-test-credential".into(),
+            })
+            .unwrap();
+
+        assert_eq!(revoked.data.revision, 2);
+        assert!(revoked.data.revoked_at_ms.is_some());
+        assert_eq!(core.credential_references().unwrap(), vec![revoked.data]);
+        assert!(matches!(
+            store.read(&reference_id),
+            Err(AppError::Unavailable { .. })
+        ));
     }
 }

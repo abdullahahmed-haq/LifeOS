@@ -17,3 +17,4 @@
 | TauRPC                     |              0.8.2 | MIT OR Apache-2.0 | spike only              | typed IPC comparison                                                       |
 | uuid                       |             1.24.0 | Apache-2.0 OR MIT | Core                    | UUIDv7 IDs                                                                 |
 | sha2                       |             0.11.0 | MIT OR Apache-2.0 | EntityStore             | migration checksums                                                        |
+| keyring                    |              4.1.6 | MIT OR Apache-2.0 | Credentials             | native macOS/Windows credential storage; Rust-only opaque reference seam   |

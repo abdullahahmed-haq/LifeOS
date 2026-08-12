@@ -6,8 +6,9 @@ use std::{
 
 use lifeos_domain::{
     AREA_TYPE_ID, ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaVersion,
-    DEFAULT_DEVICE_ID, DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, EntityRevision, HealthSnapshot,
-    PermissionDecision, PermissionPolicy, SearchResult, ThemePreference, UndoResult,
+    CredentialReference, DEFAULT_DEVICE_ID, DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, EntityRevision,
+    HealthSnapshot, PermissionDecision, PermissionPolicy, SearchResult, ThemePreference,
+    UndoResult,
 };
 use lifeos_search::{fts_query, normalize_for_search};
 use rusqlite::{
@@ -86,10 +87,24 @@ const SAFETY_POLICY_SCHEMA: &str = r#"
 ALTER TABLE permission_policies ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1);
 "#;
 
+const CREDENTIAL_REFERENCE_SCHEMA: &str = r#"
+CREATE TABLE credential_references (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+  kind TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK(revision >= 1),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  revoked_at INTEGER
+);
+CREATE UNIQUE INDEX credential_references_active_kind_idx ON credential_references(workspace_id,kind) WHERE revoked_at IS NULL;
+"#;
+
 const MIGRATIONS: &[(i32, &str)] = &[
     (1, INITIAL_SCHEMA),
     (2, FOUNDATION_SETTINGS_SCHEMA),
     (3, SAFETY_POLICY_SCHEMA),
+    (4, CREDENTIAL_REFERENCE_SCHEMA),
 ];
 
 pub struct EntityStore {
@@ -242,6 +257,133 @@ impl EntityStore {
             .map_err(internal)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(internal)
+    }
+
+    pub fn credential_references(&self) -> Result<Vec<CredentialReference>, AppError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT id,kind,revision,revoked_at FROM credential_references WHERE workspace_id=?1 ORDER BY created_at")
+            .map_err(internal)?;
+        statement
+            .query_map([DEFAULT_WORKSPACE_ID], row_credential_reference)
+            .map_err(internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(internal)
+    }
+
+    pub fn create_credential_reference(
+        &mut self,
+        id: String,
+        kind: String,
+        operation_id: String,
+    ) -> Result<ActionReceipt<CredentialReference>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let now = now();
+        let reference = CredentialReference {
+            id,
+            kind,
+            revision: 1,
+            revoked_at_ms: None,
+        };
+        tx.execute(
+            "INSERT INTO credential_references (id,workspace_id,kind,revision,created_at,updated_at) VALUES (?1,?2,?3,1,?4,?4)",
+            params![reference.id, DEFAULT_WORKSPACE_ID, reference.kind, now],
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::SqliteFailure(sqlite_error, _)
+                if sqlite_error.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                AppError::ConflictExternal {
+                    reason: "an active credential reference already exists for this kind".into(),
+                }
+            }
+            other => internal(other),
+        })?;
+        let event_id = Uuid::now_v7().to_string();
+        tx.execute(
+            "INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,'credential_reference.created',NULL,1,?3,'user',?4,?5,?6)",
+            params![event_id, DEFAULT_WORKSPACE_ID, serde_json::json!({"credentialReferenceId":reference.id,"kind":reference.kind}).to_string(), DEFAULT_USER_ID, operation_id, now],
+        ).map_err(internal)?;
+        tx.execute(
+            "INSERT INTO audit_events VALUES (?1,?2,'credential_reference.create','user',?3,?4,?5,NULL,?6)",
+            params![Uuid::now_v7().to_string(), DEFAULT_WORKSPACE_ID, DEFAULT_USER_ID, serde_json::json!([reference.id]).to_string(), operation_id, now],
+        ).map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(ActionReceipt {
+            data: reference.clone(),
+            operation_id,
+            affected_entity_ids: vec![reference.id],
+            resulting_revisions: vec![],
+            domain_event_ids: vec![event_id],
+            undo_batch_id: None,
+        })
+    }
+
+    pub fn revoke_credential_reference(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<CredentialReference>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let current = tx
+            .query_row(
+                "SELECT id,kind,revision,revoked_at FROM credential_references WHERE id=?1 AND workspace_id=?2",
+                params![id, DEFAULT_WORKSPACE_ID],
+                row_credential_reference,
+            )
+            .optional()
+            .map_err(internal)?
+            .ok_or(AppError::NotFound { entity_id: id.clone() })?;
+        if current.revision != expected_revision {
+            return Err(AppError::ConflictRevision {
+                entity_id: id,
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        if current.revoked_at_ms.is_some() {
+            return Err(AppError::Validation {
+                field: "credentialReferenceId".into(),
+                reason: "is already revoked".into(),
+            });
+        }
+        let now = now();
+        let reference = CredentialReference {
+            id: current.id,
+            kind: current.kind,
+            revision: current.revision + 1,
+            revoked_at_ms: Some(now.to_string()),
+        };
+        tx.execute(
+            "UPDATE credential_references SET revision=?1,updated_at=?2,revoked_at=?2 WHERE id=?3 AND revision=?4 AND revoked_at IS NULL",
+            params![reference.revision, now, reference.id, current.revision],
+        )
+        .map_err(internal)?;
+        let event_id = Uuid::now_v7().to_string();
+        tx.execute(
+            "INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,'credential_reference.revoked',NULL,?3,?4,'user',?5,?6,?7)",
+            params![event_id, DEFAULT_WORKSPACE_ID, reference.revision, serde_json::json!({"credentialReferenceId":reference.id,"kind":reference.kind}).to_string(), DEFAULT_USER_ID, operation_id, now],
+        ).map_err(internal)?;
+        tx.execute(
+            "INSERT INTO audit_events VALUES (?1,?2,'credential_reference.revoke','user',?3,?4,?5,NULL,?6)",
+            params![Uuid::now_v7().to_string(), DEFAULT_WORKSPACE_ID, DEFAULT_USER_ID, serde_json::json!([reference.id]).to_string(), operation_id, now],
+        ).map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(ActionReceipt {
+            data: reference.clone(),
+            operation_id,
+            affected_entity_ids: vec![reference.id],
+            resulting_revisions: vec![],
+            domain_event_ids: vec![event_id],
+            undo_batch_id: None,
+        })
     }
 
     pub fn upsert_permission_policy(
@@ -1093,6 +1235,15 @@ fn row_permission_policy(row: &rusqlite::Row<'_>) -> rusqlite::Result<Permission
     })
 }
 
+fn row_credential_reference(row: &rusqlite::Row<'_>) -> rusqlite::Result<CredentialReference> {
+    Ok(CredentialReference {
+        id: row.get(0)?,
+        kind: row.get(1)?,
+        revision: row.get(2)?,
+        revoked_at_ms: row.get::<_, Option<i64>>(3)?.map(|value| value.to_string()),
+    })
+}
+
 fn write_version(
     tx: &rusqlite::Transaction<'_>,
     area: &Area,
@@ -1317,7 +1468,7 @@ mod tests {
         }
 
         let store = EntityStore::open(&path).unwrap();
-        assert_eq!(store.health().unwrap().schema_version, 3);
+        assert_eq!(store.health().unwrap().schema_version, 4);
         assert!(store.integrity_check().unwrap());
     }
 

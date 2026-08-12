@@ -2,6 +2,7 @@
 members = [
   "apps/desktop/src-tauri",
   "crates/lifeos-core",
+  "crates/lifeos-credentials",
   "crates/lifeos-domain",
   "crates/lifeos-search",
   "crates/lifeos-safety",
@@ -24,3 +25,4 @@ specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 thiserror = "2.0.20"
 unicode-normalization = "0.1.25"
 uuid = { version = "1.24.0", features = ["serde", "v7"] }
+keyring = { version = "=4.1.6", default-features = false, features = ["v1"] }

@@ -10,6 +10,9 @@ export const commands = {
 	updateAppSettings: (request: UpdateAppSettingsRequest) => typedError<ActionReceipt<AppSettings>, AppError>(__TAURI_INVOKE("update_app_settings", { request })),
 	listPermissionPolicies: () => typedError<PermissionPolicy[], AppError>(__TAURI_INVOKE("list_permission_policies")),
 	upsertPermissionPolicy: (request: UpsertPermissionPolicyRequest) => typedError<ActionReceipt<PermissionPolicy>, AppError>(__TAURI_INVOKE("upsert_permission_policy", { request })),
+	listCredentialReferences: () => typedError<CredentialReference[], AppError>(__TAURI_INVOKE("list_credential_references")),
+	saveCredential: (request: SaveCredentialRequest) => typedError<ActionReceipt<CredentialReference>, AppError>(__TAURI_INVOKE("save_credential", { request })),
+	revokeCredential: (request: RevokeCredentialRequest) => typedError<ActionReceipt<CredentialReference>, AppError>(__TAURI_INVOKE("revoke_credential", { request })),
 	listAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_areas")),
 	listTrashedAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_trashed_areas")),
 	createArea: (request: CreateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("create_area", { request })),
@@ -48,6 +51,8 @@ export type AppError = { code: "VALIDATION"; details: {
 	entityId: string,
 	expected: number,
 	actual: number,
+} } | { code: "CONFLICT_EXTERNAL"; details: {
+	reason: string,
 } } | { code: "INTEGRITY_FAILURE"; details: {
 	reason: string,
 } } | { code: "PERMISSION_DENIED"; details: {
@@ -89,6 +94,13 @@ export type CreateAreaRequest = {
 	operationId: string,
 };
 
+export type CredentialReference = {
+	id: string,
+	kind: string,
+	revision: number,
+	revokedAtMs: string | null,
+};
+
 export type EntityRevision = {
 	entityId: string,
 	revision: number,
@@ -115,6 +127,18 @@ export type PermissionPolicy = {
 	decision: PermissionDecision,
 	enabled: boolean,
 	revision: number,
+};
+
+export type RevokeCredentialRequest = {
+	id: string,
+	expectedRevision: number,
+	operationId: string,
+};
+
+export type SaveCredentialRequest = {
+	kind: string,
+	secret: string,
+	operationId: string,
 };
 
 export type SearchRequest = {

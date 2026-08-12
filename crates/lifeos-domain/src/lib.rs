@@ -53,6 +53,31 @@ pub struct PermissionEvaluation {
     pub matched_policy_id: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialReference {
+    pub id: String,
+    pub kind: String,
+    pub revision: i32,
+    pub revoked_at_ms: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveCredentialRequest {
+    pub kind: String,
+    pub secret: String,
+    pub operation_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokeCredentialRequest {
+    pub id: String,
+    pub expected_revision: i32,
+    pub operation_id: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct UpsertPermissionPolicyRequest {
@@ -207,6 +232,9 @@ pub enum AppError {
         expected: i32,
         actual: i32,
     },
+    ConflictExternal {
+        reason: String,
+    },
     IntegrityFailure {
         reason: String,
     },
@@ -285,6 +313,32 @@ pub fn validate_permission_policy(request: &UpsertPermissionPolicyRequest) -> Re
         return Err(AppError::Validation {
             field: "expectedRevision".into(),
             reason: "must be at least 1 when provided".into(),
+        });
+    }
+    Ok(())
+}
+
+pub fn validate_credential_kind(value: &str) -> Result<String, AppError> {
+    let kind = value.trim();
+    if kind.is_empty()
+        || kind.len() > 100
+        || !kind
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character == '_' || character == '.')
+    {
+        return Err(AppError::Validation {
+            field: "credentialKind".into(),
+            reason: "must be a lowercase dotted or underscored key".into(),
+        });
+    }
+    Ok(kind.to_owned())
+}
+
+pub fn validate_secret(value: &str) -> Result<(), AppError> {
+    if value.is_empty() || value.len() > 16_384 {
+        return Err(AppError::Validation {
+            field: "secret".into(),
+            reason: "must be between 1 and 16384 bytes".into(),
         });
     }
     Ok(())

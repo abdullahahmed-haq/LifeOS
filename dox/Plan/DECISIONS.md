@@ -40,6 +40,12 @@ Status: accepted for F0
 
 `lifeos-safety` owns deterministic permission evaluation behind `evaluate(actor, operation, policies)`. The Core resolves the actor category; React and external callers cannot forge it. Local user mutations default to Allow so the offline product remains usable; AI, MCP, automation, and Obsidian default to Ask. Exact enabled policy records override defaults and are revision-checked, audited, and emitted as domain events through append-only migration 3. A `deny` decision stops Core before the store mutation; `ask` maps to a stable `CONFIRMATION_REQUIRED` error until a confirmation scope is implemented.
 
+## D-032 — Native credential store and opaque-reference persistence
+
+Status: accepted for F0
+
+Use `keyring` 4.1.6 (MIT OR Apache-2.0) as the Rust-only adapter to the macOS Keychain and Windows native credential store. SQLite migration 4 stores an opaque UUIDv7 credential reference, kind, revision, and revocation timestamp only; it never receives secret bytes. A Core mutation writes the OS secret before creating the reference and compensates by revoking the secret if persistence fails. Revocation removes the native secret before marking the reference revoked. Tauri may receive a user-entered secret for this narrowly scoped write command but never returns, logs, caches, or persists it in the renderer.
+
 ## D-019 — Verified JavaScript toolchain pin
 
 The running development host is Node `24.14.0` and pnpm `11.16.0`. Pin those exact versions in `.node-version` and `package.json` rather than retaining a stale Node 22 observation that causes every package command to warn. CI uses the same declared versions. Reassess this pin before a supported-platform release.

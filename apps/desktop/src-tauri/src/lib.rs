@@ -3,7 +3,8 @@ use std::{fs, path::PathBuf};
 use lifeos_core::ApplicationCore;
 use lifeos_domain::{
     ActionReceipt, AppError, AppSettings, Area, AreaLifecycleRequest, CreateAreaRequest,
-    HealthSnapshot, PermissionPolicy, SearchRequest, SearchResult, UndoRequest, UndoResult,
+    CredentialReference, HealthSnapshot, PermissionPolicy, RevokeCredentialRequest,
+    SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest, UndoResult,
     UpdateAppSettingsRequest, UpdateAreaRequest, UpsertPermissionPolicyRequest,
 };
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,29 @@ fn upsert_permission_policy(
     request: UpsertPermissionPolicyRequest,
 ) -> Result<ActionReceipt<PermissionPolicy>, AppError> {
     state.core.upsert_permission_policy(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn list_credential_references(
+    state: State<'_, AppState>,
+) -> Result<Vec<CredentialReference>, AppError> {
+    state.core.credential_references()
+}
+#[tauri::command]
+#[specta::specta]
+fn save_credential(
+    state: State<'_, AppState>,
+    request: SaveCredentialRequest,
+) -> Result<ActionReceipt<CredentialReference>, AppError> {
+    state.core.save_credential(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn revoke_credential(
+    state: State<'_, AppState>,
+    request: RevokeCredentialRequest,
+) -> Result<ActionReceipt<CredentialReference>, AppError> {
+    state.core.revoke_credential(request)
 }
 #[tauri::command]
 #[specta::specta]
@@ -153,6 +177,9 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             update_app_settings,
             list_permission_policies,
             upsert_permission_policy,
+            list_credential_references,
+            save_credential,
+            revoke_credential,
             list_areas,
             list_trashed_areas,
             create_area,

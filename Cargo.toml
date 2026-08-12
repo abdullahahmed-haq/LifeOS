@@ -4,6 +4,7 @@ members = [
   "crates/lifeos-core",
   "crates/lifeos-domain",
   "crates/lifeos-search",
+  "crates/lifeos-safety",
   "crates/lifeos-store"
 ]
 resolver = "3"

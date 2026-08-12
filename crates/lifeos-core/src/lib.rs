@@ -1,10 +1,12 @@
 use std::{path::Path, sync::Mutex};
 
 use lifeos_domain::{
-    ActionReceipt, AppError, AppSettings, Area, AreaLifecycleRequest, AreaVersion,
-    CONTRACT_VERSION, CreateAreaRequest, HealthSnapshot, SearchRequest, SearchResult, UndoRequest,
-    UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest,
+    ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaLifecycleRequest, AreaVersion,
+    CONTRACT_VERSION, CreateAreaRequest, HealthSnapshot, PermissionDecision, PermissionPolicy,
+    SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
+    UpdateAreaRequest, UpsertPermissionPolicyRequest,
 };
+use lifeos_safety::evaluate;
 use lifeos_store::EntityStore;
 
 pub struct ApplicationCore {
@@ -27,6 +29,7 @@ impl ApplicationCore {
         &self,
         request: UpdateAppSettingsRequest,
     ) -> Result<ActionReceipt<AppSettings>, AppError> {
+        self.authorize_local("settings.update")?;
         lifeos_domain::validate_settings(&request)?;
         self.store
             .lock()
@@ -46,6 +49,29 @@ impl ApplicationCore {
     pub fn list_areas(&self) -> Result<Vec<Area>, AppError> {
         self.store.lock().map_err(|_| internal())?.list_areas()
     }
+    pub fn permission_policies(&self) -> Result<Vec<PermissionPolicy>, AppError> {
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .permission_policies()
+    }
+    pub fn upsert_permission_policy(
+        &self,
+        request: UpsertPermissionPolicyRequest,
+    ) -> Result<ActionReceipt<PermissionPolicy>, AppError> {
+        lifeos_domain::validate_permission_policy(&request)?;
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .upsert_permission_policy(
+                request.subject_kind,
+                request.operation.trim().to_owned(),
+                request.decision,
+                request.enabled,
+                request.expected_revision,
+                operation_id(request.operation_id),
+            )
+    }
     pub fn list_trashed_areas(&self) -> Result<Vec<Area>, AppError> {
         self.store
             .lock()
@@ -53,6 +79,7 @@ impl ApplicationCore {
             .list_trashed_areas()
     }
     pub fn create_area(&self, request: CreateAreaRequest) -> Result<ActionReceipt<Area>, AppError> {
+        self.authorize_local("area.create")?;
         let title = lifeos_domain::validate_title(&request.title)?;
         self.store
             .lock()
@@ -60,6 +87,7 @@ impl ApplicationCore {
             .create_area(title, operation_id(request.operation_id))
     }
     pub fn update_area(&self, request: UpdateAreaRequest) -> Result<ActionReceipt<Area>, AppError> {
+        self.authorize_local("area.update")?;
         let title = lifeos_domain::validate_title(&request.title)?;
         self.store.lock().map_err(|_| internal())?.update_area(
             request.id,
@@ -72,6 +100,7 @@ impl ApplicationCore {
         &self,
         request: AreaLifecycleRequest,
     ) -> Result<ActionReceipt<Area>, AppError> {
+        self.authorize_local("area.archive")?;
         self.store.lock().map_err(|_| internal())?.archive_area(
             request.id,
             request.expected_revision,
@@ -82,6 +111,7 @@ impl ApplicationCore {
         &self,
         request: AreaLifecycleRequest,
     ) -> Result<ActionReceipt<Area>, AppError> {
+        self.authorize_local("area.trash")?;
         self.store.lock().map_err(|_| internal())?.trash_area(
             request.id,
             request.expected_revision,
@@ -92,6 +122,7 @@ impl ApplicationCore {
         &self,
         request: AreaLifecycleRequest,
     ) -> Result<ActionReceipt<Area>, AppError> {
+        self.authorize_local("area.restore")?;
         self.store.lock().map_err(|_| internal())?.restore_area(
             request.id,
             request.expected_revision,
@@ -99,6 +130,7 @@ impl ApplicationCore {
         )
     }
     pub fn undo(&self, request: UndoRequest) -> Result<ActionReceipt<UndoResult>, AppError> {
+        self.authorize_local("undo.execute")?;
         self.store
             .lock()
             .map_err(|_| internal())?
@@ -121,6 +153,19 @@ impl ApplicationCore {
         destination: impl AsRef<Path>,
     ) -> Result<(), AppError> {
         EntityStore::restore_backup(source, destination)
+    }
+
+    fn authorize_local(&self, operation: &str) -> Result<(), AppError> {
+        let policies = self.permission_policies()?;
+        match evaluate(ActorKind::User, operation, &policies).decision {
+            PermissionDecision::Allow => Ok(()),
+            PermissionDecision::Ask => Err(AppError::ConfirmationRequired {
+                operation: operation.to_owned(),
+            }),
+            PermissionDecision::Deny => Err(AppError::PermissionDenied {
+                operation: operation.to_owned(),
+            }),
+        }
     }
 }
 fn operation_id(value: String) -> String {
@@ -329,5 +374,31 @@ mod tests {
             .unwrap();
         assert_eq!(updated.data.locale, "ar");
         assert_eq!(updated.data.revision, initial.revision + 1);
+    }
+
+    #[test]
+    fn permission_policies_block_a_core_mutation_before_the_store_write() {
+        let directory = tempdir().unwrap();
+        let core = ApplicationCore::open(directory.path().join("policy.db")).unwrap();
+        let policy = core
+            .upsert_permission_policy(UpsertPermissionPolicyRequest {
+                subject_kind: ActorKind::User,
+                operation: "area.create".into(),
+                decision: PermissionDecision::Deny,
+                enabled: true,
+                expected_revision: None,
+                operation_id: "deny-area-creation".into(),
+            })
+            .unwrap();
+
+        assert_eq!(policy.data.revision, 1);
+        assert!(matches!(
+            core.create_area(CreateAreaRequest {
+                title: "Blocked".into(),
+                operation_id: "blocked-create".into(),
+            }),
+            Err(AppError::PermissionDenied { operation }) if operation == "area.create"
+        ));
+        assert!(core.list_areas().unwrap().is_empty());
     }
 }

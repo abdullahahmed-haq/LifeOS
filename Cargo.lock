@@ -1849,6 +1849,7 @@ name = "lifeos-core"
 version = "0.1.0"
 dependencies = [
  "lifeos-domain",
+ "lifeos-safety",
  "lifeos-store",
  "tempfile",
  "uuid",
@@ -1876,6 +1877,13 @@ dependencies = [
  "serde_json",
  "specta",
  "uuid",
+]
+
+[[package]]
+name = "lifeos-safety"
+version = "0.1.0"
+dependencies = [
+ "lifeos-domain",
 ]
 
 [[package]]

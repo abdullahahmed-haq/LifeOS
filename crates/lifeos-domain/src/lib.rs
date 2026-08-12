@@ -16,6 +16,55 @@ pub enum ThemePreference {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActorKind {
+    User,
+    Ai,
+    Mcp,
+    Automation,
+    Obsidian,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionDecision {
+    Allow,
+    Ask,
+    Deny,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionPolicy {
+    pub id: String,
+    pub subject_kind: ActorKind,
+    pub operation: String,
+    pub decision: PermissionDecision,
+    pub enabled: bool,
+    pub revision: i32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionEvaluation {
+    pub actor: ActorKind,
+    pub operation: String,
+    pub decision: PermissionDecision,
+    pub matched_policy_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertPermissionPolicyRequest {
+    pub subject_kind: ActorKind,
+    pub operation: String,
+    pub decision: PermissionDecision,
+    pub enabled: bool,
+    pub expected_revision: Option<i32>,
+    pub operation_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub locale: String,
@@ -164,6 +213,9 @@ pub enum AppError {
     PermissionDenied {
         operation: String,
     },
+    ConfirmationRequired {
+        operation: String,
+    },
     Unavailable {
         service: String,
     },
@@ -208,6 +260,31 @@ pub fn validate_settings(request: &UpdateAppSettingsRequest) -> Result<(), AppEr
         return Err(AppError::Validation {
             field: "weekStartsOn".into(),
             reason: "must be between 0 and 6".into(),
+        });
+    }
+    Ok(())
+}
+
+pub fn validate_permission_policy(request: &UpsertPermissionPolicyRequest) -> Result<(), AppError> {
+    let operation = request.operation.trim();
+    if operation.is_empty()
+        || operation.len() > 100
+        || !operation
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character == '.')
+    {
+        return Err(AppError::Validation {
+            field: "operation".into(),
+            reason: "must be a lowercase dotted operation key".into(),
+        });
+    }
+    if request
+        .expected_revision
+        .is_some_and(|revision| revision < 1)
+    {
+        return Err(AppError::Validation {
+            field: "expectedRevision".into(),
+            reason: "must be at least 1 when provided".into(),
         });
     }
     Ok(())

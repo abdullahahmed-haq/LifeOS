@@ -8,6 +8,8 @@ export const commands = {
 	coreHealth: () => typedError<HealthSnapshot, AppError>(__TAURI_INVOKE("core_health")),
 	appSettings: () => typedError<AppSettings, AppError>(__TAURI_INVOKE("app_settings")),
 	updateAppSettings: (request: UpdateAppSettingsRequest) => typedError<ActionReceipt<AppSettings>, AppError>(__TAURI_INVOKE("update_app_settings", { request })),
+	listPermissionPolicies: () => typedError<PermissionPolicy[], AppError>(__TAURI_INVOKE("list_permission_policies")),
+	upsertPermissionPolicy: (request: UpsertPermissionPolicyRequest) => typedError<ActionReceipt<PermissionPolicy>, AppError>(__TAURI_INVOKE("upsert_permission_policy", { request })),
 	listAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_areas")),
 	listTrashedAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_trashed_areas")),
 	createArea: (request: CreateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("create_area", { request })),
@@ -35,6 +37,8 @@ export type ActionReceipt<T> = {
 	undoBatchId: string | null,
 };
 
+export type ActorKind = "user" | "ai" | "mcp" | "automation" | "obsidian";
+
 export type AppError = { code: "VALIDATION"; details: {
 	field: string,
 	reason: string,
@@ -47,6 +51,8 @@ export type AppError = { code: "VALIDATION"; details: {
 } } | { code: "INTEGRITY_FAILURE"; details: {
 	reason: string,
 } } | { code: "PERMISSION_DENIED"; details: {
+	operation: string,
+} } | { code: "CONFIRMATION_REQUIRED"; details: {
 	operation: string,
 } } | { code: "UNAVAILABLE"; details: {
 	service: string,
@@ -100,6 +106,17 @@ export type HealthSnapshot = {
 	foreignKeysEnabled: boolean,
 };
 
+export type PermissionDecision = "allow" | "ask" | "deny";
+
+export type PermissionPolicy = {
+	id: string,
+	subjectKind: ActorKind,
+	operation: string,
+	decision: PermissionDecision,
+	enabled: boolean,
+	revision: number,
+};
+
 export type SearchRequest = {
 	query: string,
 	prefix: boolean,
@@ -137,6 +154,15 @@ export type UpdateAreaRequest = {
 	id: string,
 	title: string,
 	expectedRevision: number,
+	operationId: string,
+};
+
+export type UpsertPermissionPolicyRequest = {
+	subjectKind: ActorKind,
+	operation: string,
+	decision: PermissionDecision,
+	enabled: boolean,
+	expectedRevision: number | null,
 	operationId: string,
 };
 

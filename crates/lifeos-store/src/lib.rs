@@ -5,9 +5,9 @@ use std::{
 };
 
 use lifeos_domain::{
-    AREA_TYPE_ID, ActionReceipt, AppError, AppSettings, Area, AreaVersion, DEFAULT_DEVICE_ID,
-    DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, EntityRevision, HealthSnapshot, SearchResult,
-    ThemePreference, UndoResult,
+    AREA_TYPE_ID, ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaVersion,
+    DEFAULT_DEVICE_ID, DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, EntityRevision, HealthSnapshot,
+    PermissionDecision, PermissionPolicy, SearchResult, ThemePreference, UndoResult,
 };
 use lifeos_search::{fts_query, normalize_for_search};
 use rusqlite::{
@@ -82,7 +82,15 @@ CREATE TABLE consumer_cursors (
 );
 "#;
 
-const MIGRATIONS: &[(i32, &str)] = &[(1, INITIAL_SCHEMA), (2, FOUNDATION_SETTINGS_SCHEMA)];
+const SAFETY_POLICY_SCHEMA: &str = r#"
+ALTER TABLE permission_policies ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1);
+"#;
+
+const MIGRATIONS: &[(i32, &str)] = &[
+    (1, INITIAL_SCHEMA),
+    (2, FOUNDATION_SETTINGS_SCHEMA),
+    (3, SAFETY_POLICY_SCHEMA),
+];
 
 pub struct EntityStore {
     connection: Connection,
@@ -216,6 +224,157 @@ impl EntityStore {
             data: next,
             operation_id,
             affected_entity_ids: vec![],
+            resulting_revisions: vec![],
+            domain_event_ids: vec![event_id],
+            undo_batch_id: None,
+        })
+    }
+
+    pub fn permission_policies(&self) -> Result<Vec<PermissionPolicy>, AppError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT id,subject_kind,operation,decision,enabled,revision FROM permission_policies WHERE workspace_id=?1 ORDER BY subject_kind,operation",
+            )
+            .map_err(internal)?;
+        statement
+            .query_map([DEFAULT_WORKSPACE_ID], row_permission_policy)
+            .map_err(internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(internal)
+    }
+
+    pub fn upsert_permission_policy(
+        &mut self,
+        subject_kind: ActorKind,
+        operation: String,
+        decision: PermissionDecision,
+        enabled: bool,
+        expected_revision: Option<i32>,
+        operation_id: String,
+    ) -> Result<ActionReceipt<PermissionPolicy>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let current = tx
+            .query_row(
+                "SELECT id,subject_kind,operation,decision,enabled,revision FROM permission_policies WHERE workspace_id=?1 AND subject_kind=?2 AND operation=?3",
+                params![DEFAULT_WORKSPACE_ID, actor_kind_key(&subject_kind), operation],
+                row_permission_policy,
+            )
+            .optional()
+            .map_err(internal)?;
+        let now = now();
+        let (policy, action) = if let Some(current) = current {
+            let expected = expected_revision.ok_or_else(|| AppError::Validation {
+                field: "expectedRevision".into(),
+                reason: "is required for an existing permission policy".into(),
+            })?;
+            if expected != current.revision {
+                return Err(AppError::ConflictRevision {
+                    entity_id: current.id,
+                    expected,
+                    actual: current.revision,
+                });
+            }
+            let next = PermissionPolicy {
+                id: current.id,
+                subject_kind,
+                operation,
+                decision,
+                enabled,
+                revision: current.revision + 1,
+            };
+            let changed = tx
+                .execute(
+                    "UPDATE permission_policies SET decision=?1,enabled=?2,revision=?3,updated_at=?4 WHERE id=?5 AND revision=?6",
+                    params![
+                        permission_decision_key(&next.decision),
+                        sqlite_bool(next.enabled),
+                        next.revision,
+                        now,
+                        next.id,
+                        current.revision
+                    ],
+                )
+                .map_err(internal)?;
+            if changed != 1 {
+                return Err(AppError::ConflictRevision {
+                    entity_id: next.id,
+                    expected,
+                    actual: current.revision,
+                });
+            }
+            (next, "permission_policy.updated")
+        } else {
+            if expected_revision.is_some() {
+                return Err(AppError::NotFound {
+                    entity_id: format!("{}:{operation}", actor_kind_key(&subject_kind)),
+                });
+            }
+            let next = PermissionPolicy {
+                id: Uuid::now_v7().to_string(),
+                subject_kind,
+                operation,
+                decision,
+                enabled,
+                revision: 1,
+            };
+            tx.execute(
+                "INSERT INTO permission_policies (id,workspace_id,subject_kind,operation,decision,enabled,created_at,updated_at,revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?7,1)",
+                params![
+                    next.id,
+                    DEFAULT_WORKSPACE_ID,
+                    actor_kind_key(&next.subject_kind),
+                    next.operation,
+                    permission_decision_key(&next.decision),
+                    sqlite_bool(next.enabled),
+                    now
+                ],
+            )
+            .map_err(internal)?;
+            (next, "permission_policy.created")
+        };
+        let event_id = Uuid::now_v7().to_string();
+        tx.execute(
+            "INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,?3,NULL,?4,?5,'user',?6,?7,?8)",
+            params![
+                event_id,
+                DEFAULT_WORKSPACE_ID,
+                action,
+                policy.revision,
+                serde_json::json!({
+                    "policyId": policy.id,
+                    "subjectKind": actor_kind_key(&policy.subject_kind),
+                    "operation": policy.operation,
+                    "decision": permission_decision_key(&policy.decision),
+                    "enabled": policy.enabled
+                })
+                .to_string(),
+                DEFAULT_USER_ID,
+                operation_id,
+                now
+            ],
+        )
+        .map_err(internal)?;
+        tx.execute(
+            "INSERT INTO audit_events VALUES (?1,?2,'permission_policy.upsert','user',?3,?4,?5,NULL,?6)",
+            params![
+                Uuid::now_v7().to_string(),
+                DEFAULT_WORKSPACE_ID,
+                DEFAULT_USER_ID,
+                serde_json::json!([policy.id]).to_string(),
+                operation_id,
+                now
+            ],
+        )
+        .map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(ActionReceipt {
+            data: policy.clone(),
+            operation_id,
+            affected_entity_ids: vec![policy.id],
             resulting_revisions: vec![],
             domain_event_ids: vec![event_id],
             undo_batch_id: None,
@@ -875,6 +1034,65 @@ fn theme_key(theme: &ThemePreference) -> &'static str {
     }
 }
 
+fn actor_kind_key(actor: &ActorKind) -> &'static str {
+    match actor {
+        ActorKind::User => "user",
+        ActorKind::Ai => "ai",
+        ActorKind::Mcp => "mcp",
+        ActorKind::Automation => "automation",
+        ActorKind::Obsidian => "obsidian",
+    }
+}
+
+fn permission_decision_key(decision: &PermissionDecision) -> &'static str {
+    match decision {
+        PermissionDecision::Allow => "allow",
+        PermissionDecision::Ask => "ask",
+        PermissionDecision::Deny => "deny",
+    }
+}
+
+fn sqlite_bool(value: bool) -> i32 {
+    if value { 1 } else { 0 }
+}
+
+fn row_permission_policy(row: &rusqlite::Row<'_>) -> rusqlite::Result<PermissionPolicy> {
+    let subject_kind = match row.get::<_, String>(1)?.as_str() {
+        "user" => ActorKind::User,
+        "ai" => ActorKind::Ai,
+        "mcp" => ActorKind::Mcp,
+        "automation" => ActorKind::Automation,
+        "obsidian" => ActorKind::Obsidian,
+        _ => {
+            return Err(rusqlite::Error::InvalidColumnType(
+                1,
+                "subject_kind".into(),
+                rusqlite::types::Type::Text,
+            ));
+        }
+    };
+    let decision = match row.get::<_, String>(3)?.as_str() {
+        "allow" => PermissionDecision::Allow,
+        "ask" => PermissionDecision::Ask,
+        "deny" => PermissionDecision::Deny,
+        _ => {
+            return Err(rusqlite::Error::InvalidColumnType(
+                3,
+                "decision".into(),
+                rusqlite::types::Type::Text,
+            ));
+        }
+    };
+    Ok(PermissionPolicy {
+        id: row.get(0)?,
+        subject_kind,
+        operation: row.get(2)?,
+        decision,
+        enabled: row.get::<_, i32>(4)? != 0,
+        revision: row.get(5)?,
+    })
+}
+
 fn write_version(
     tx: &rusqlite::Transaction<'_>,
     area: &Area,
@@ -1099,8 +1317,58 @@ mod tests {
         }
 
         let store = EntityStore::open(&path).unwrap();
-        assert_eq!(store.health().unwrap().schema_version, 2);
+        assert_eq!(store.health().unwrap().schema_version, 3);
         assert!(store.integrity_check().unwrap());
+    }
+
+    #[test]
+    fn persists_policy_revisions_and_records_audit_events() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("policies.db");
+        let mut store = EntityStore::open(&path).unwrap();
+        let created = store
+            .upsert_permission_policy(
+                ActorKind::Ai,
+                "area.create".into(),
+                PermissionDecision::Ask,
+                true,
+                None,
+                "policy-create".into(),
+            )
+            .unwrap();
+        let updated = store
+            .upsert_permission_policy(
+                ActorKind::Ai,
+                "area.create".into(),
+                PermissionDecision::Deny,
+                true,
+                Some(created.data.revision),
+                "policy-update".into(),
+            )
+            .unwrap();
+
+        assert_eq!(updated.data.revision, 2);
+        assert_eq!(store.permission_policies().unwrap(), vec![updated.data]);
+        assert!(matches!(
+            store.upsert_permission_policy(
+                ActorKind::Ai,
+                "area.create".into(),
+                PermissionDecision::Allow,
+                true,
+                Some(1),
+                "policy-stale".into(),
+            ),
+            Err(AppError::ConflictRevision { .. })
+        ));
+        let audit_count: i32 = store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM audit_events WHERE action_key='permission_policy.upsert'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(audit_count, 2);
     }
 
     #[test]

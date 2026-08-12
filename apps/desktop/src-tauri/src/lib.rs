@@ -3,8 +3,8 @@ use std::{fs, path::PathBuf};
 use lifeos_core::ApplicationCore;
 use lifeos_domain::{
     ActionReceipt, AppError, AppSettings, Area, AreaLifecycleRequest, CreateAreaRequest,
-    HealthSnapshot, SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
-    UpdateAreaRequest,
+    HealthSnapshot, PermissionPolicy, SearchRequest, SearchResult, UndoRequest, UndoResult,
+    UpdateAppSettingsRequest, UpdateAreaRequest, UpsertPermissionPolicyRequest,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -39,6 +39,19 @@ fn update_app_settings(
     request: UpdateAppSettingsRequest,
 ) -> Result<ActionReceipt<AppSettings>, AppError> {
     state.core.update_app_settings(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn list_permission_policies(state: State<'_, AppState>) -> Result<Vec<PermissionPolicy>, AppError> {
+    state.core.permission_policies()
+}
+#[tauri::command]
+#[specta::specta]
+fn upsert_permission_policy(
+    state: State<'_, AppState>,
+    request: UpsertPermissionPolicyRequest,
+) -> Result<ActionReceipt<PermissionPolicy>, AppError> {
+    state.core.upsert_permission_policy(request)
 }
 #[tauri::command]
 #[specta::specta]
@@ -138,6 +151,8 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             core_health,
             app_settings,
             update_app_settings,
+            list_permission_policies,
+            upsert_permission_policy,
             list_areas,
             list_trashed_areas,
             create_area,

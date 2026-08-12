@@ -1,5 +1,5 @@
 [package]
-name = "lifeos-core"
+name = "lifeos-safety"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -8,9 +8,3 @@ publish.workspace = true
 
 [dependencies]
 lifeos-domain = { path = "../lifeos-domain" }
-lifeos-safety = { path = "../lifeos-safety" }
-lifeos-store = { path = "../lifeos-store" }
-uuid.workspace = true
-
-[dev-dependencies]
-tempfile = "3.27.0"

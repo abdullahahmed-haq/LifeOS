@@ -18,6 +18,7 @@ import {
 import { useIntl } from "react-intl";
 import { AreaScreen } from "../features/areas/area-screen";
 import { ArchiveScreen } from "../features/lifecycle/archive-screen";
+import { AuditScreen } from "../features/lifecycle/audit-screen";
 import { TrashScreen } from "../features/lifecycle/trash-screen";
 import { VersionHistoryScreen } from "../features/lifecycle/version-history-screen";
 import { GeneralSettingsScreen } from "../features/settings/general-settings-screen";
@@ -55,6 +56,11 @@ const archiveRoute = createRoute({
   path: "archive",
   component: ArchiveScreen,
 });
+const auditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "audit",
+  component: AuditScreen,
+});
 const versionHistoryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "versions/$entityId",
@@ -82,6 +88,7 @@ const routeTree = rootRoute.addChildren([
   todayRoute,
   projectsRoute,
   archiveRoute,
+  auditRoute,
   versionHistoryRoute,
   trashRoute,
   settingsRoute,
@@ -141,6 +148,9 @@ function ApplicationShell() {
           </Link>
           <Link to="/archive" activeProps={{ "aria-current": "page" }}>
             {intl.formatMessage({ id: "navigation.archive" })}
+          </Link>
+          <Link to="/audit" activeProps={{ "aria-current": "page" }}>
+            {intl.formatMessage({ id: "navigation.audit" })}
           </Link>
         </nav>
         <div className="presentation-controls">

@@ -58,6 +58,12 @@ Status: accepted for F0
 
 Area history is exposed through a typed `AreaHistoryRequest` with a mandatory 1–100 limit. The store sorts snapshots newest-first and binds the cap directly into SQLite; React cannot request an unbounded history dump. The Version History route renders canonical snapshots and operation IDs only, never raw SQL or hidden payloads. Generalized history/audit pagination will reuse this bounded contract shape in later entity slices.
 
+## D-035 — Privacy-safe, bounded audit timeline
+
+Status: accepted for F0
+
+The audit timeline is a separate typed Core query with the same mandatory 1–100 limit as version history. SQLite orders it newest-first and binds the cap in the query. Its public DTO deliberately contains only an audit ID, action key, actor category, and timestamp; affected-entity lists, operation IDs, raw payloads, actor IDs, and all internal diagnostics remain inside Rust Core. This keeps a user-facing safety surface useful without turning the renderer into a general audit-data export channel.
+
 ## D-019 — Verified JavaScript toolchain pin
 
 The running development host is Node `24.14.0` and pnpm `11.16.0`. Pin those exact versions in `.node-version` and `package.json` rather than retaining a stale Node 22 observation that causes every package command to warn. CI uses the same declared versions. Reassess this pin before a supported-platform release.

@@ -3,9 +3,10 @@ use std::{fs, path::PathBuf};
 use lifeos_core::ApplicationCore;
 use lifeos_domain::{
     ActionReceipt, AppError, AppSettings, Area, AreaHistoryRequest, AreaLifecycleRequest,
-    AreaVersion, CreateAreaRequest, CredentialReference, HealthSnapshot, PermissionPolicy,
-    RevokeCredentialRequest, SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest,
-    UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest, UpsertPermissionPolicyRequest,
+    AreaVersion, AuditEntry, AuditListRequest, CreateAreaRequest, CredentialReference,
+    HealthSnapshot, PermissionPolicy, RevokeCredentialRequest, SaveCredentialRequest,
+    SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
+    UpdateAreaRequest, UpsertPermissionPolicyRequest,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -142,6 +143,14 @@ fn area_history(
 }
 #[tauri::command]
 #[specta::specta]
+fn audit_entries(
+    state: State<'_, AppState>,
+    request: AuditListRequest,
+) -> Result<Vec<AuditEntry>, AppError> {
+    state.core.audit_entries(request)
+}
+#[tauri::command]
+#[specta::specta]
 fn undo_action(
     state: State<'_, AppState>,
     request: UndoRequest,
@@ -202,6 +211,7 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             trash_area,
             restore_area,
             area_history,
+            audit_entries,
             undo_action,
             search_entities,
             foundation_check

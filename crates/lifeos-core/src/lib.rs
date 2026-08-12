@@ -3,10 +3,10 @@ use std::{path::Path, sync::Mutex};
 use lifeos_credentials::{CredentialStore, NativeCredentialStore};
 use lifeos_domain::{
     ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaHistoryRequest,
-    AreaLifecycleRequest, AreaVersion, CONTRACT_VERSION, CreateAreaRequest, CredentialReference,
-    HealthSnapshot, PermissionDecision, PermissionPolicy, RevokeCredentialRequest,
-    SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest, UndoResult,
-    UpdateAppSettingsRequest, UpdateAreaRequest, UpsertPermissionPolicyRequest,
+    AreaLifecycleRequest, AreaVersion, AuditEntry, AuditListRequest, CONTRACT_VERSION,
+    CreateAreaRequest, CredentialReference, HealthSnapshot, PermissionDecision, PermissionPolicy,
+    RevokeCredentialRequest, SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest,
+    UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest, UpsertPermissionPolicyRequest,
 };
 use lifeos_safety::evaluate;
 use lifeos_store::EntityStore;
@@ -222,6 +222,13 @@ impl ApplicationCore {
             .lock()
             .map_err(|_| internal())?
             .area_history(&request.id, limit)
+    }
+    pub fn audit_entries(&self, request: AuditListRequest) -> Result<Vec<AuditEntry>, AppError> {
+        let limit = lifeos_domain::validate_page_limit(request.limit)?;
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .audit_entries(limit)
     }
     pub fn backup_to(&self, path: impl AsRef<Path>) -> Result<(), AppError> {
         self.store.lock().map_err(|_| internal())?.backup_to(path)
@@ -510,6 +517,21 @@ mod tests {
             Err(AppError::PermissionDenied { operation }) if operation == "area.create"
         ));
         assert!(core.list_areas().unwrap().is_empty());
+    }
+
+    #[test]
+    fn audit_timeline_is_newest_first_bounded_and_safe() {
+        let directory = tempdir().unwrap();
+        let core = ApplicationCore::open(directory.path().join("audit.db")).unwrap();
+        create(&core, "Health", "create-area");
+        create(&core, "Learning", "create-second-area");
+
+        let entries = core.audit_entries(AuditListRequest { limit: 1 }).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].action, "area.created");
+        assert_eq!(entries[0].actor_kind, ActorKind::User);
+        assert!(!entries[0].id.is_empty());
+        assert!(!entries[0].occurred_at_ms.is_empty());
     }
 
     #[test]

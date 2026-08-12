@@ -220,6 +220,24 @@ pub struct AreaHistoryRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditListRequest {
+    pub limit: u8,
+}
+
+/// A deliberately narrow audit projection for the user-facing timeline.
+/// Sensitive audit payloads, entity lists, and internal operation identifiers
+/// stay inside Rust Core; callers receive only safe, display-oriented metadata.
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditEntry {
+    pub id: String,
+    pub action: String,
+    pub actor_kind: ActorKind,
+    pub occurred_at_ms: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
 #[serde(
     tag = "code",
     content = "details",
@@ -401,6 +419,16 @@ mod tests {
         assert!(matches!(
             validate_settings(&request),
             Err(AppError::Validation { .. })
+        ));
+    }
+
+    #[test]
+    fn page_limits_are_bounded_for_public_history_queries() {
+        assert_eq!(validate_page_limit(1).unwrap(), 1);
+        assert_eq!(validate_page_limit(100).unwrap(), 100);
+        assert!(matches!(
+            validate_page_limit(0),
+            Err(AppError::Validation { field, .. }) if field == "limit"
         ));
     }
 }

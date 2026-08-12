@@ -22,6 +22,7 @@ export const commands = {
 	trashArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("trash_area", { request })),
 	restoreArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("restore_area", { request })),
 	areaHistory: (request: AreaHistoryRequest) => typedError<AreaVersion[], AppError>(__TAURI_INVOKE("area_history", { request })),
+	auditEntries: (request: AuditListRequest) => typedError<AuditEntry[], AppError>(__TAURI_INVOKE("audit_entries", { request })),
 	undoAction: (request: UndoRequest) => typedError<ActionReceipt<UndoResult>, AppError>(__TAURI_INVOKE("undo_action", { request })),
 	searchEntities: (request: SearchRequest) => typedError<SearchResult[], AppError>(__TAURI_INVOKE("search_entities", { request })),
 	foundationCheck: () => typedError<HealthSnapshot, AppError>(__TAURI_INVOKE("foundation_check")),
@@ -101,6 +102,22 @@ export type AreaVersion = {
 	title: string,
 	operationId: string,
 	createdAtMs: string,
+};
+
+/**
+ *  A deliberately narrow audit projection for the user-facing timeline.
+ *  Sensitive audit payloads, entity lists, and internal operation identifiers
+ *  stay inside Rust Core; callers receive only safe, display-oriented metadata.
+ */
+export type AuditEntry = {
+	id: string,
+	action: string,
+	actorKind: ActorKind,
+	occurredAtMs: string,
+};
+
+export type AuditListRequest = {
+	limit: number,
 };
 
 export type CreateAreaRequest = {

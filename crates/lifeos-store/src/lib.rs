@@ -5,7 +5,7 @@ use std::{
 };
 
 use lifeos_domain::{
-    AREA_TYPE_ID, ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaVersion,
+    AREA_TYPE_ID, ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaVersion, AuditEntry,
     CredentialReference, DEFAULT_DEVICE_ID, DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, EntityRevision,
     HealthSnapshot, PermissionDecision, PermissionPolicy, SearchResult, ThemePreference,
     UndoResult,
@@ -1056,6 +1056,42 @@ impl EntityStore {
                     title: area.title,
                     operation_id: row.get(2)?,
                     created_at_ms: row.get::<_, i64>(3)?.to_string(),
+                })
+            })
+            .map_err(internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(internal)
+    }
+
+    pub fn audit_entries(&self, limit: usize) -> Result<Vec<AuditEntry>, AppError> {
+        let limit = i64::try_from(limit).map_err(internal)?;
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT id,action_key,actor_type,occurred_at FROM audit_events WHERE workspace_id=?1 ORDER BY occurred_at DESC,id DESC LIMIT ?2",
+            )
+            .map_err(internal)?;
+        statement
+            .query_map(params![DEFAULT_WORKSPACE_ID, limit], |row| {
+                let actor_kind = match row.get::<_, String>(2)?.as_str() {
+                    "user" => ActorKind::User,
+                    "ai" => ActorKind::Ai,
+                    "mcp" => ActorKind::Mcp,
+                    "automation" => ActorKind::Automation,
+                    "obsidian" => ActorKind::Obsidian,
+                    _ => {
+                        return Err(rusqlite::Error::InvalidColumnType(
+                            2,
+                            "actor_type".into(),
+                            rusqlite::types::Type::Text,
+                        ));
+                    }
+                };
+                Ok(AuditEntry {
+                    id: row.get(0)?,
+                    action: row.get(1)?,
+                    actor_kind,
+                    occurred_at_ms: row.get::<_, i64>(3)?.to_string(),
                 })
             })
             .map_err(internal)?

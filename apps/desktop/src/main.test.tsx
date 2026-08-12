@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   listArchivedAreas: vi.fn(),
   archiveArea: vi.fn(),
   areaHistory: vi.fn(),
+  auditEntries: vi.fn(),
   createArea: vi.fn(),
   listTrashedAreas: vi.fn(),
   restoreArea: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("@lifeos/contracts/bindings", () => ({
     createArea: mocks.createArea,
     archiveArea: mocks.archiveArea,
     areaHistory: mocks.areaHistory,
+    auditEntries: mocks.auditEntries,
     trashArea: mocks.trashArea,
     restoreArea: mocks.restoreArea,
     undoAction: vi.fn(),
@@ -85,6 +87,7 @@ describe("LifeOS application shell", () => {
     mocks.createArea.mockReset();
     mocks.archiveArea.mockReset();
     mocks.areaHistory.mockReset();
+    mocks.auditEntries.mockResolvedValue({ status: "ok", data: [] });
     mocks.trashArea.mockReset();
     mocks.restoreArea.mockReset();
     mocks.updateArea.mockReset();
@@ -357,5 +360,29 @@ describe("LifeOS application shell", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Preferences saved",
     );
+  });
+
+  it("loads the bounded audit timeline through the Audit route", async () => {
+    const user = userEvent.setup();
+    mocks.auditEntries.mockResolvedValue({
+      status: "ok",
+      data: [
+        {
+          id: "018f0000-0000-7000-8000-000000000004",
+          action: "area.updated",
+          actorKind: "user",
+          occurredAtMs: "0",
+        },
+      ],
+    });
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Audit" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Audit timeline" }),
+    ).toBeInTheDocument();
+    expect(mocks.auditEntries).toHaveBeenCalledWith({ limit: 100 });
+    expect(screen.getByRole("listitem")).toHaveTextContent("area.updated");
   });
 });

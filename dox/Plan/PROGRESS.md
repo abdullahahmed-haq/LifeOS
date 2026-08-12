@@ -1,6 +1,6 @@
 # LifeOS implementation progress
 
-Updated: 2026-08-11
+Updated: 2026-08-12
 
 Status vocabulary: Pending / In progress / Completed / Blocked.
 
@@ -10,6 +10,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - Completed — F0 Area lifecycle vertical slice: archive, Trash, restore, and undo are revision-checked Core operations with real React controls and a Trash route. The lifecycle implementation is currently proven for Areas and will be generalized before M3 entities are added.
 - Completed — F0 Area management UI increment: Areas support active, archived, Trash, restore, inline revision-checked editing, and undo-ready receipts through real Core/SQLite commands.
 - Completed — F0 Area version-history increment: the Area card links to a typed, bounded, newest-first canonical snapshot timeline at `/versions/$entityId`.
+- Completed — F0 bounded audit-timeline increment: `/audit` uses a typed Core query capped at 100 records and renders only safe action, actor-category, and timestamp metadata.
 
 - Completed — Read all 12 DOX source contracts and inventory their product, data, architecture, security, UX, i18n, test, and delivery requirements.
 - Completed — Recursively inspect UI V001. It contains only the El Messiri font and an empty `ui install.md`; no implementation/screens/assets are available.
@@ -61,6 +62,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - F0 native credential foundation verification: generated contract drift check, type checking, linting, formatting, renderer build, Rust formatting, Clippy with warnings denied, and Rust workspace tests passed. JavaScript tests: 6 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 20 passed, 0 failed, including a macOS Keychain round-trip, fake-store replacement/revocation, reference revision, and database-byte assertion proving a test secret is absent. `CI=true pnpm tauri build` produced a fresh macOS ARM64 DMG; strict code-sign and `hdiutil verify` passed and its SHA-256 is `006b20780a0fd7501384af5b4f776d54aebf7216107907e1e77732940529c21a`.
 - F0 Area management UI verification: generated contract drift check, type checking, linting, formatting, renderer build, Rust formatting, Clippy with warnings denied, and Rust workspace tests passed. JavaScript tests: 8 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 20 passed, 0 failed, including archive query behavior and active/archive/Trash lifecycle integrity. `CI=true pnpm tauri build` produced a fresh macOS ARM64 DMG; strict code-sign and `hdiutil verify` passed and its SHA-256 is `72276ce44b759013a4a6b1cc8b72ddc791917b72883f29301661652c0ce7d4b7`.
 - F0 bounded Area history verification: generated contract drift check, type checking, linting, formatting, renderer build, Rust formatting, Clippy with warnings denied, and Rust workspace tests passed. JavaScript tests: 9 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 20 passed, 0 failed, including history ordering and 100-record cap behavior. `CI=true pnpm tauri build` produced a fresh macOS ARM64 DMG; strict code-sign and `hdiutil verify` passed and its SHA-256 is `3b84c1929485900135f6918556dd25bacdc7bb95a8b8bafb4a92a18af7d1b5ff`.
+- F0 bounded audit-timeline verification: generated contract drift check, TypeScript type checking, linting, formatting, renderer build, Rust formatting, and Clippy with warnings denied passed. JavaScript tests: 10 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 24 passed, 0 failed, including audit cap/order/safe-projection assertions and the native macOS Keychain round-trip. `CI=true pnpm tauri build` produced a fresh macOS ARM64 bundle at 2026-08-12 11:07 local host time; strict code-sign and `hdiutil verify` passed and its SHA-256 is `7d3b43c1f98599374cef69ab43b46bcb604265079d45a85160a3928beed68362`.
 
 - Source counts: DOX 12 files / approximately 352 KiB; UI V001 2 files / approximately 140 KiB; Full App initially empty.
 - Git: `origin=https://github.com/abdullahahmed-haq/LifeOS.git`; remote initially empty; GitHub CLI authenticated as `abdullahahmed-haq`.

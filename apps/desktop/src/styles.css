@@ -284,6 +284,37 @@ body {
   font: inherit;
   cursor: pointer;
 }
+.area-actions a,
+.back-link {
+  border: 1px solid #b7c7c5;
+  border-radius: 9px;
+  padding: 8px 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.version-list {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+.version-list li {
+  display: grid;
+  gap: 4px;
+  padding: 18px;
+  border-radius: 14px;
+  background: #fff;
+}
+.version-list small {
+  color: #69757b;
+  overflow-wrap: anywhere;
+}
+:root[data-theme="dark"] .version-list li {
+  background: #2b3c45;
+}
+:root[data-theme="dark"] .version-list small {
+  color: #b9c8ca;
+}
 .undo-toast {
   position: fixed;
   inset-inline-end: 28px;

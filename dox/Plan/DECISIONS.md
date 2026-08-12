@@ -52,6 +52,12 @@ Status: accepted for F0
 
 Areas now have real active, archived, and Trash collections. Archive and restore reuse the existing lifecycle transaction and revision check; no separate archive-only state exists in React. Editing stays inline and calls the typed canonical update command with the entity revision. This completes Areas as the UI reference slice for future generic lifecycle surfaces, while a reusable cross-entity lifecycle module remains an F0 follow-up.
 
+## D-034 — Bounded, newest-first version history
+
+Status: accepted for F0
+
+Area history is exposed through a typed `AreaHistoryRequest` with a mandatory 1–100 limit. The store sorts snapshots newest-first and binds the cap directly into SQLite; React cannot request an unbounded history dump. The Version History route renders canonical snapshots and operation IDs only, never raw SQL or hidden payloads. Generalized history/audit pagination will reuse this bounded contract shape in later entity slices.
+
 ## D-019 — Verified JavaScript toolchain pin
 
 The running development host is Node `24.14.0` and pnpm `11.16.0`. Pin those exact versions in `.node-version` and `package.json` rather than retaining a stale Node 22 observation that causes every package command to warn. CI uses the same declared versions. Reassess this pin before a supported-platform release.

@@ -2,11 +2,11 @@ use std::{path::Path, sync::Mutex};
 
 use lifeos_credentials::{CredentialStore, NativeCredentialStore};
 use lifeos_domain::{
-    ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaLifecycleRequest, AreaVersion,
-    CONTRACT_VERSION, CreateAreaRequest, CredentialReference, HealthSnapshot, PermissionDecision,
-    PermissionPolicy, RevokeCredentialRequest, SaveCredentialRequest, SearchRequest, SearchResult,
-    UndoRequest, UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest,
-    UpsertPermissionPolicyRequest,
+    ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaHistoryRequest,
+    AreaLifecycleRequest, AreaVersion, CONTRACT_VERSION, CreateAreaRequest, CredentialReference,
+    HealthSnapshot, PermissionDecision, PermissionPolicy, RevokeCredentialRequest,
+    SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest, UndoResult,
+    UpdateAppSettingsRequest, UpdateAreaRequest, UpsertPermissionPolicyRequest,
 };
 use lifeos_safety::evaluate;
 use lifeos_store::EntityStore;
@@ -216,8 +216,12 @@ impl ApplicationCore {
             .map_err(|_| internal())?
             .search(&request.query, request.prefix)
     }
-    pub fn area_history(&self, id: &str) -> Result<Vec<AreaVersion>, AppError> {
-        self.store.lock().map_err(|_| internal())?.area_history(id)
+    pub fn area_history(&self, request: AreaHistoryRequest) -> Result<Vec<AreaVersion>, AppError> {
+        let limit = lifeos_domain::validate_page_limit(request.limit)?;
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .area_history(&request.id, limit)
     }
     pub fn backup_to(&self, path: impl AsRef<Path>) -> Result<(), AppError> {
         self.store.lock().map_err(|_| internal())?.backup_to(path)
@@ -293,19 +297,42 @@ mod tests {
         })
         .unwrap();
 
-        let versions = core.area_history(&created.data.id).unwrap();
+        let versions = core
+            .area_history(AreaHistoryRequest {
+                id: created.data.id.clone(),
+                limit: 100,
+            })
+            .unwrap();
         assert_eq!(
             versions
                 .iter()
                 .map(|version| (version.revision, version.title.as_str()))
                 .collect::<Vec<_>>(),
-            vec![(1, "Study"), (2, "Deep Study"), (3, "Study")]
+            vec![(3, "Study"), (2, "Deep Study"), (1, "Study")]
+        );
+        assert_eq!(
+            core.area_history(AreaHistoryRequest {
+                id: created.data.id.clone(),
+                limit: 2,
+            })
+            .unwrap()
+            .len(),
+            2
         );
         drop(core);
 
         let reopened = ApplicationCore::open(&database).unwrap();
         assert_eq!(reopened.list_areas().unwrap()[0].title, "Study");
-        assert_eq!(reopened.area_history(&created.data.id).unwrap().len(), 3);
+        assert_eq!(
+            reopened
+                .area_history(AreaHistoryRequest {
+                    id: created.data.id.clone(),
+                    limit: 100,
+                })
+                .unwrap()
+                .len(),
+            3
+        );
     }
 
     #[test]
@@ -344,7 +371,16 @@ mod tests {
             1
         );
         let reopened = ApplicationCore::open(&database).unwrap();
-        assert_eq!(reopened.area_history(&area.id).unwrap().len(), 2);
+        assert_eq!(
+            reopened
+                .area_history(AreaHistoryRequest {
+                    id: area.id.clone(),
+                    limit: 100,
+                })
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]

@@ -19,6 +19,7 @@ import { useIntl } from "react-intl";
 import { AreaScreen } from "../features/areas/area-screen";
 import { ArchiveScreen } from "../features/lifecycle/archive-screen";
 import { TrashScreen } from "../features/lifecycle/trash-screen";
+import { VersionHistoryScreen } from "../features/lifecycle/version-history-screen";
 import { GeneralSettingsScreen } from "../features/settings/general-settings-screen";
 import { usePresentation } from "./presentation";
 
@@ -54,6 +55,11 @@ const archiveRoute = createRoute({
   path: "archive",
   component: ArchiveScreen,
 });
+const versionHistoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "versions/$entityId",
+  component: VersionHistoryScreen,
+});
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "settings/general",
@@ -76,6 +82,7 @@ const routeTree = rootRoute.addChildren([
   todayRoute,
   projectsRoute,
   archiveRoute,
+  versionHistoryRoute,
   trashRoute,
   settingsRoute,
   integrationsRoute,

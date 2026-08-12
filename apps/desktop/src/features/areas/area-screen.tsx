@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { Button, Input, Label, TextField } from "react-aria-components";
 import { useForm } from "react-hook-form";
 import { useIntl } from "react-intl";
@@ -166,6 +167,9 @@ export function AreaScreen() {
                 )}
               </small>
               <div className="area-actions">
+                <Link to="/versions/$entityId" params={{ entityId: area.id }}>
+                  {intl.formatMessage({ id: "area.history" })}
+                </Link>
                 <Button onPress={() => setEditing(area)}>
                   {intl.formatMessage({ id: "area.edit" })}
                 </Button>

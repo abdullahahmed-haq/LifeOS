@@ -213,6 +213,13 @@ pub struct AreaVersion {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AreaHistoryRequest {
+    pub id: String,
+    pub limit: u8,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
 #[serde(
     tag = "code",
     content = "details",
@@ -342,6 +349,16 @@ pub fn validate_secret(value: &str) -> Result<(), AppError> {
         });
     }
     Ok(())
+}
+
+pub fn validate_page_limit(limit: u8) -> Result<usize, AppError> {
+    if limit == 0 || limit > 100 {
+        return Err(AppError::Validation {
+            field: "limit".into(),
+            reason: "must be between 1 and 100".into(),
+        });
+    }
+    Ok(usize::from(limit))
 }
 
 #[cfg(test)]

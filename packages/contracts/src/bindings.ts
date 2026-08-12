@@ -21,6 +21,7 @@ export const commands = {
 	archiveArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("archive_area", { request })),
 	trashArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("trash_area", { request })),
 	restoreArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("restore_area", { request })),
+	areaHistory: (request: AreaHistoryRequest) => typedError<AreaVersion[], AppError>(__TAURI_INVOKE("area_history", { request })),
 	undoAction: (request: UndoRequest) => typedError<ActionReceipt<UndoResult>, AppError>(__TAURI_INVOKE("undo_action", { request })),
 	searchEntities: (request: SearchRequest) => typedError<SearchResult[], AppError>(__TAURI_INVOKE("search_entities", { request })),
 	foundationCheck: () => typedError<HealthSnapshot, AppError>(__TAURI_INVOKE("foundation_check")),
@@ -84,10 +85,22 @@ export type Area = {
 	deletedAtMs: string | null,
 };
 
+export type AreaHistoryRequest = {
+	id: string,
+	limit: number,
+};
+
 export type AreaLifecycleRequest = {
 	id: string,
 	expectedRevision: number,
 	operationId: string,
+};
+
+export type AreaVersion = {
+	revision: number,
+	title: string,
+	operationId: string,
+	createdAtMs: string,
 };
 
 export type CreateAreaRequest = {

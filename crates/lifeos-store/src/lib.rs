@@ -1032,15 +1032,16 @@ impl EntityStore {
             .map_err(internal)
     }
 
-    pub fn area_history(&self, id: &str) -> Result<Vec<AreaVersion>, AppError> {
+    pub fn area_history(&self, id: &str, limit: usize) -> Result<Vec<AreaVersion>, AppError> {
+        let limit = i64::try_from(limit).map_err(internal)?;
         let mut statement = self
             .connection
             .prepare(
-                "SELECT revision,snapshot_json,operation_id,created_at FROM entity_versions WHERE entity_id=?1 ORDER BY revision",
+                "SELECT revision,snapshot_json,operation_id,created_at FROM entity_versions WHERE entity_id=?1 ORDER BY revision DESC LIMIT ?2",
             )
             .map_err(internal)?;
         statement
-            .query_map([id], |row| {
+            .query_map(params![id, limit], |row| {
                 let revision = row.get(0)?;
                 let snapshot: String = row.get(1)?;
                 let area: Area = serde_json::from_str(&snapshot).map_err(|error| {
@@ -1618,6 +1619,6 @@ mod tests {
             .unwrap();
         assert_eq!(restored.data.revision, 5);
         assert_eq!(store.list_areas().unwrap()[0].title, "Health");
-        assert_eq!(store.area_history(&created.data.id).unwrap().len(), 5);
+        assert_eq!(store.area_history(&created.data.id, 100).unwrap().len(), 5);
     }
 }

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   listAreas: vi.fn(),
   listArchivedAreas: vi.fn(),
   archiveArea: vi.fn(),
+  areaHistory: vi.fn(),
   createArea: vi.fn(),
   listTrashedAreas: vi.fn(),
   restoreArea: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@lifeos/contracts/bindings", () => ({
     listTrashedAreas: mocks.listTrashedAreas,
     createArea: mocks.createArea,
     archiveArea: mocks.archiveArea,
+    areaHistory: mocks.areaHistory,
     trashArea: mocks.trashArea,
     restoreArea: mocks.restoreArea,
     undoAction: vi.fn(),
@@ -40,8 +42,14 @@ vi.mock("@lifeos/contracts/bindings", () => ({
 import { App } from "./main";
 
 describe("LifeOS application shell", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    window.history.pushState(null, "", "/");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
   beforeEach(() => {
+    window.history.pushState(null, "", "/");
+    window.dispatchEvent(new PopStateEvent("popstate"));
     localStorage.clear();
     mocks.appSettings.mockResolvedValue({
       status: "ok",
@@ -76,6 +84,7 @@ describe("LifeOS application shell", () => {
     mocks.listTrashedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.createArea.mockReset();
     mocks.archiveArea.mockReset();
+    mocks.areaHistory.mockReset();
     mocks.trashArea.mockReset();
     mocks.restoreArea.mockReset();
     mocks.updateArea.mockReset();
@@ -275,6 +284,58 @@ describe("LifeOS application shell", () => {
         expectedRevision: 4,
       }),
     );
+  });
+
+  it("shows newest-first bounded canonical Area history", async () => {
+    const user = userEvent.setup();
+    mocks.listAreas.mockResolvedValue({
+      status: "ok",
+      data: [
+        {
+          id: "018f0000-0000-7000-8000-000000000003",
+          title: "Health",
+          revision: 3,
+          createdAtMs: "1",
+          updatedAtMs: "3",
+          archivedAtMs: null,
+          deletedAtMs: null,
+        },
+      ],
+    });
+    mocks.areaHistory.mockResolvedValue({
+      status: "ok",
+      data: [
+        {
+          revision: 3,
+          title: "Wellbeing",
+          operationId: "update",
+          createdAtMs: "3",
+        },
+        {
+          revision: 1,
+          title: "Health",
+          operationId: "create",
+          createdAtMs: "1",
+        },
+      ],
+    });
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Areas" }));
+    await user.click(await screen.findByRole("link", { name: "History" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Version history" }),
+    ).toBeInTheDocument();
+    expect(mocks.areaHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "018f0000-0000-7000-8000-000000000003",
+        limit: 100,
+      }),
+    );
+    expect(
+      screen.getAllByRole("listitem").map((item) => item.textContent),
+    ).toEqual([expect.stringContaining("v3"), expect.stringContaining("v1")]);
   });
 
   it("persists planning preferences through the settings route", async () => {

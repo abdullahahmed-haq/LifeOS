@@ -14,12 +14,18 @@ const mocks = vi.hoisted(() => ({
   updateAppSettings: vi.fn(),
   listAreas: vi.fn(),
   listGoals: vi.fn(),
+  listArchivedGoals: vi.fn(),
+  listTrashedGoals: vi.fn(),
   listArchivedAreas: vi.fn(),
   archiveArea: vi.fn(),
   areaHistory: vi.fn(),
   auditEntries: vi.fn(),
   createArea: vi.fn(),
   createGoal: vi.fn(),
+  updateGoal: vi.fn(),
+  archiveGoal: vi.fn(),
+  trashGoal: vi.fn(),
+  restoreGoal: vi.fn(),
   listTrashedAreas: vi.fn(),
   restoreArea: vi.fn(),
   trashArea: vi.fn(),
@@ -32,10 +38,16 @@ vi.mock("@lifeos/contracts/bindings", () => ({
     updateAppSettings: mocks.updateAppSettings,
     listAreas: mocks.listAreas,
     listGoals: mocks.listGoals,
+    listArchivedGoals: mocks.listArchivedGoals,
+    listTrashedGoals: mocks.listTrashedGoals,
     listArchivedAreas: mocks.listArchivedAreas,
     listTrashedAreas: mocks.listTrashedAreas,
     createArea: mocks.createArea,
     createGoal: mocks.createGoal,
+    updateGoal: mocks.updateGoal,
+    archiveGoal: mocks.archiveGoal,
+    trashGoal: mocks.trashGoal,
+    restoreGoal: mocks.restoreGoal,
     archiveArea: mocks.archiveArea,
     areaHistory: mocks.areaHistory,
     auditEntries: mocks.auditEntries,
@@ -88,10 +100,16 @@ describe("LifeOS application shell", () => {
     }));
     mocks.listAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.listGoals.mockResolvedValue({ status: "ok", data: [] });
+    mocks.listArchivedGoals.mockResolvedValue({ status: "ok", data: [] });
+    mocks.listTrashedGoals.mockResolvedValue({ status: "ok", data: [] });
     mocks.listArchivedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.listTrashedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.createArea.mockReset();
     mocks.createGoal.mockReset();
+    mocks.updateGoal.mockReset();
+    mocks.archiveGoal.mockReset();
+    mocks.trashGoal.mockReset();
+    mocks.restoreGoal.mockReset();
     mocks.archiveArea.mockReset();
     mocks.areaHistory.mockReset();
     mocks.auditEntries.mockResolvedValue({ status: "ok", data: [] });
@@ -441,5 +459,105 @@ describe("LifeOS application shell", () => {
       }),
     );
     expect(await screen.findByRole("status")).toHaveTextContent("Goal created");
+  });
+
+  it("edits and archives a Goal with its canonical revision", async () => {
+    const user = userEvent.setup();
+    mocks.listGoals
+      .mockResolvedValueOnce({
+        status: "ok",
+        data: [
+          {
+            id: "018f0000-0000-7000-8000-000000000006",
+            title: "Learn Arabic",
+            horizon: "long",
+            status: "active",
+            startDate: null,
+            targetDate: null,
+            revision: 4,
+            createdAtMs: "1",
+            updatedAtMs: "2",
+            archivedAtMs: null,
+            deletedAtMs: null,
+          },
+        ],
+      })
+      .mockResolvedValue({
+        status: "ok",
+        data: [
+          {
+            id: "018f0000-0000-7000-8000-000000000006",
+            title: "Read Arabic",
+            horizon: "long",
+            status: "active",
+            startDate: null,
+            targetDate: null,
+            revision: 5,
+            createdAtMs: "1",
+            updatedAtMs: "3",
+            archivedAtMs: null,
+            deletedAtMs: null,
+          },
+        ],
+      });
+    mocks.updateGoal.mockResolvedValue({
+      status: "ok",
+      data: {
+        data: {
+          id: "018f0000-0000-7000-8000-000000000006",
+          title: "Read Arabic",
+          horizon: "long",
+          status: "active",
+          startDate: null,
+          targetDate: null,
+          revision: 5,
+          createdAtMs: "1",
+          updatedAtMs: "3",
+          archivedAtMs: null,
+          deletedAtMs: null,
+        },
+        operationId: "goal-update",
+        affectedEntityIds: [],
+        resultingRevisions: [],
+        domainEventIds: [],
+        undoBatchId: "goal-undo",
+      },
+    });
+    mocks.archiveGoal.mockResolvedValue({
+      status: "ok",
+      data: {
+        data: {},
+        operationId: "goal-archive",
+        affectedEntityIds: [],
+        resultingRevisions: [],
+        domainEventIds: [],
+        undoBatchId: "goal-archive-undo",
+      },
+    });
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Goals" }));
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const editForm = screen.getByRole("form", { name: "Edit goal" });
+    const input = within(editForm).getByRole("textbox", { name: "Goal name" });
+    await user.clear(input);
+    await user.type(input, "Read Arabic");
+    await user.click(within(editForm).getByRole("button", { name: "Save" }));
+
+    expect(mocks.updateGoal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "018f0000-0000-7000-8000-000000000006",
+        title: "Read Arabic",
+        expectedRevision: 4,
+      }),
+    );
+    await screen.findByRole("heading", { name: "Read Arabic" });
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(mocks.archiveGoal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "018f0000-0000-7000-8000-000000000006",
+        expectedRevision: 5,
+      }),
+    );
   });
 });

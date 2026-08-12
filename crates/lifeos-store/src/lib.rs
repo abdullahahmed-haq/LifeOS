@@ -8,7 +8,7 @@ use lifeos_domain::{
     AREA_TYPE_ID, ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaVersion, AuditEntry,
     CredentialReference, DEFAULT_DEVICE_ID, DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, EntityRevision,
     GOAL_TYPE_ID, Goal, GoalHorizon, HealthSnapshot, PermissionDecision, PermissionPolicy,
-    SearchResult, ThemePreference, UndoResult,
+    SearchResult, ThemePreference, UndoResult, UpdateGoalRequest,
 };
 use lifeos_search::{fts_query, normalize_for_search};
 use rusqlite::{
@@ -552,9 +552,29 @@ impl EntityStore {
         let mut statement = self
             .connection
             .prepare(
-                "SELECT e.id,e.title,g.horizon,g.status,g.start_date,g.target_date,e.revision,e.created_at,e.updated_at FROM entities e JOIN goals g ON g.entity_id=e.id WHERE e.workspace_id=?1 AND e.type_id=?2 AND e.deleted_at IS NULL AND e.archived_at IS NULL ORDER BY e.updated_at DESC,e.id DESC",
+                "SELECT e.id,e.title,g.horizon,g.status,g.start_date,g.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN goals g ON g.entity_id=e.id WHERE e.workspace_id=?1 AND e.type_id=?2 AND e.deleted_at IS NULL AND e.archived_at IS NULL ORDER BY e.updated_at DESC,e.id DESC",
             )
             .map_err(internal)?;
+        statement
+            .query_map(params![DEFAULT_WORKSPACE_ID, GOAL_TYPE_ID], row_goal)
+            .map_err(internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(internal)
+    }
+
+    pub fn list_archived_goals(&self) -> Result<Vec<Goal>, AppError> {
+        self.list_goals_by_lifecycle("e.archived_at IS NOT NULL AND e.deleted_at IS NULL")
+    }
+
+    pub fn list_trashed_goals(&self) -> Result<Vec<Goal>, AppError> {
+        self.list_goals_by_lifecycle("e.deleted_at IS NOT NULL")
+    }
+
+    fn list_goals_by_lifecycle(&self, predicate: &str) -> Result<Vec<Goal>, AppError> {
+        let sql = format!(
+            "SELECT e.id,e.title,g.horizon,g.status,g.start_date,g.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN goals g ON g.entity_id=e.id WHERE e.workspace_id=?1 AND e.type_id=?2 AND {predicate} ORDER BY e.updated_at DESC,e.id DESC"
+        );
+        let mut statement = self.connection.prepare(&sql).map_err(internal)?;
         statement
             .query_map(params![DEFAULT_WORKSPACE_ID, GOAL_TYPE_ID], row_goal)
             .map_err(internal)?
@@ -668,6 +688,8 @@ impl EntityStore {
             revision: 1,
             created_at_ms: now.to_string(),
             updated_at_ms: now.to_string(),
+            archived_at_ms: None,
+            deleted_at_ms: None,
         };
         let undo_batch_id = Uuid::now_v7().to_string();
         let event_id = Uuid::now_v7().to_string();
@@ -737,6 +759,215 @@ impl EntityStore {
             domain_event_ids: vec![event_id],
             undo_batch_id: Some(undo_batch_id),
         })
+    }
+
+    pub fn update_goal(
+        &mut self,
+        request: UpdateGoalRequest,
+    ) -> Result<ActionReceipt<Goal>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let current =
+            get_active_goal_in_transaction(&tx, &request.id)?.ok_or(AppError::NotFound {
+                entity_id: request.id.clone(),
+            })?;
+        if current.revision != request.expected_revision {
+            return Err(AppError::ConflictRevision {
+                entity_id: request.id,
+                expected: request.expected_revision,
+                actual: current.revision,
+            });
+        }
+        let now = now();
+        let next = Goal {
+            id: current.id.clone(),
+            title: request.title,
+            horizon: request.horizon,
+            status: current.status.clone(),
+            start_date: request.start_date,
+            target_date: request.target_date,
+            revision: current.revision + 1,
+            created_at_ms: current.created_at_ms.clone(),
+            updated_at_ms: now.to_string(),
+            archived_at_ms: current.archived_at_ms.clone(),
+            deleted_at_ms: current.deleted_at_ms.clone(),
+        };
+        let changed = tx.execute(
+            "UPDATE entities SET title=?1,updated_at=?2,revision=?3,updated_by_type='user',updated_by_id=?4 WHERE id=?5 AND revision=?6",
+            params![next.title, now, next.revision, DEFAULT_USER_ID, next.id, current.revision],
+        ).map_err(internal)?;
+        if changed != 1 {
+            return Err(AppError::ConflictRevision {
+                entity_id: next.id,
+                expected: request.expected_revision,
+                actual: current.revision,
+            });
+        }
+        tx.execute(
+            "UPDATE goals SET horizon=?1,start_date=?2,target_date=?3 WHERE entity_id=?4",
+            params![
+                goal_horizon_key(&next.horizon),
+                next.start_date,
+                next.target_date,
+                next.id
+            ],
+        )
+        .map_err(internal)?;
+        tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&next.id])
+            .map_err(internal)?;
+        insert_goal_search(&tx, &next)?;
+        let undo_batch_id = Uuid::now_v7().to_string();
+        let event_id = Uuid::now_v7().to_string();
+        write_goal_history(
+            &tx,
+            &next,
+            "goal.updated",
+            &request.operation_id,
+            &undo_batch_id,
+            &event_id,
+            now,
+        )?;
+        tx.execute(
+            "INSERT INTO undo_operations VALUES (?1,?2,0,'goal.restore_values',?3)",
+            params![Uuid::now_v7().to_string(), undo_batch_id, serde_json::json!({"entityId":current.id,"expectedRevision":next.revision,"title":current.title,"horizon":goal_horizon_key(&current.horizon),"startDate":current.start_date,"targetDate":current.target_date}).to_string()],
+        )
+        .map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(goal_receipt(
+            next,
+            request.operation_id,
+            event_id,
+            undo_batch_id,
+        ))
+    }
+
+    pub fn archive_goal(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Goal>, AppError> {
+        self.change_goal_lifecycle(
+            id,
+            expected_revision,
+            operation_id,
+            true,
+            false,
+            "goal.archived",
+        )
+    }
+
+    pub fn trash_goal(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Goal>, AppError> {
+        self.change_goal_lifecycle(
+            id,
+            expected_revision,
+            operation_id,
+            false,
+            true,
+            "goal.trashed",
+        )
+    }
+
+    pub fn restore_goal(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Goal>, AppError> {
+        self.change_goal_lifecycle(
+            id,
+            expected_revision,
+            operation_id,
+            false,
+            false,
+            "goal.restored",
+        )
+    }
+
+    fn change_goal_lifecycle(
+        &mut self,
+        id: String,
+        expected_revision: i32,
+        operation_id: String,
+        archived: bool,
+        deleted: bool,
+        action: &str,
+    ) -> Result<ActionReceipt<Goal>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let current = get_any_goal_in_transaction(&tx, &id)?.ok_or(AppError::NotFound {
+            entity_id: id.clone(),
+        })?;
+        if current.revision != expected_revision {
+            return Err(AppError::ConflictRevision {
+                entity_id: id,
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        let state: (Option<i64>, Option<i64>) = tx
+            .query_row(
+                "SELECT archived_at,deleted_at FROM entities WHERE id=?1",
+                [&current.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(internal)?;
+        if state.0.is_some() == archived && state.1.is_some() == deleted {
+            return Err(AppError::Validation {
+                field: "lifecycle".into(),
+                reason: "already in the requested lifecycle state".into(),
+            });
+        }
+        let now = now();
+        let next = Goal {
+            revision: current.revision + 1,
+            updated_at_ms: now.to_string(),
+            archived_at_ms: archived.then(|| now.to_string()),
+            deleted_at_ms: deleted.then(|| now.to_string()),
+            ..current.clone()
+        };
+        let changed = tx.execute(
+            "UPDATE entities SET archived_at=?1,deleted_at=?2,updated_at=?3,revision=?4,updated_by_type='user',updated_by_id=?5 WHERE id=?6 AND revision=?7",
+            params![archived.then_some(now), deleted.then_some(now), now, next.revision, DEFAULT_USER_ID, next.id, current.revision],
+        ).map_err(internal)?;
+        if changed != 1 {
+            return Err(AppError::ConflictRevision {
+                entity_id: next.id,
+                expected: expected_revision,
+                actual: current.revision,
+            });
+        }
+        tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&next.id])
+            .map_err(internal)?;
+        if !archived && !deleted {
+            insert_goal_search(&tx, &next)?;
+        }
+        let undo_batch_id = Uuid::now_v7().to_string();
+        let event_id = Uuid::now_v7().to_string();
+        write_goal_history(
+            &tx,
+            &next,
+            action,
+            &operation_id,
+            &undo_batch_id,
+            &event_id,
+            now,
+        )?;
+        tx.execute(
+            "INSERT INTO undo_operations VALUES (?1,?2,0,'goal.restore_lifecycle',?3)",
+            params![Uuid::now_v7().to_string(), undo_batch_id, serde_json::json!({"entityId":current.id,"expectedRevision":next.revision,"archived":state.0.is_some(),"deleted":state.1.is_some()}).to_string()],
+        ).map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(goal_receipt(next, operation_id, event_id, undo_batch_id))
     }
 
     pub fn update_area(
@@ -1007,8 +1238,9 @@ impl EntityStore {
                 .ok_or_else(|| AppError::IntegrityFailure {
                     reason: "invalid undo revision".into(),
                 })? as i32;
-        if action_key == "goal.trash" {
-            let result = undo_goal_creation(&tx, batch, operation_id, id, expected)?;
+        if action_key.starts_with("goal.") {
+            let result =
+                undo_goal_operation(&tx, batch, operation_id, id, expected, &action_key, &value)?;
             tx.commit().map_err(internal)?;
             return Ok(result);
         }
@@ -1300,6 +1532,68 @@ fn write_history(
     )
     .map_err(internal)?;
     Ok(())
+}
+
+fn write_goal_history(
+    tx: &rusqlite::Transaction<'_>,
+    goal: &Goal,
+    action: &str,
+    operation: &str,
+    batch: &str,
+    event: &str,
+    now: i64,
+) -> Result<(), AppError> {
+    tx.execute(
+        "INSERT INTO undo_batches VALUES (?1,?2,?3,'available',?4,NULL)",
+        params![batch, DEFAULT_WORKSPACE_ID, operation, now],
+    )
+    .map_err(internal)?;
+    write_goal_version(
+        tx,
+        goal,
+        "[\"title\",\"horizon\",\"startDate\",\"targetDate\"]",
+        operation,
+        now,
+    )?;
+    tx.execute(
+        "INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,?3,?4,?5,'{}','user',?6,?7,?8)",
+        params![event, DEFAULT_WORKSPACE_ID, action, goal.id, goal.revision, DEFAULT_USER_ID, operation, now],
+    )
+    .map_err(internal)?;
+    tx.execute(
+        "INSERT INTO audit_events VALUES (?1,?2,?3,'user',?4,?5,?6,?7,?8)",
+        params![
+            Uuid::now_v7().to_string(),
+            DEFAULT_WORKSPACE_ID,
+            action,
+            DEFAULT_USER_ID,
+            serde_json::json!([goal.id]).to_string(),
+            operation,
+            batch,
+            now
+        ],
+    )
+    .map_err(internal)?;
+    Ok(())
+}
+
+fn goal_receipt(
+    goal: Goal,
+    operation_id: String,
+    event_id: String,
+    undo_batch_id: String,
+) -> ActionReceipt<Goal> {
+    ActionReceipt {
+        affected_entity_ids: vec![goal.id.clone()],
+        resulting_revisions: vec![EntityRevision {
+            entity_id: goal.id.clone(),
+            revision: goal.revision,
+        }],
+        data: goal,
+        operation_id,
+        domain_event_ids: vec![event_id],
+        undo_batch_id: Some(undo_batch_id),
+    }
 }
 
 fn insert_area_search(tx: &rusqlite::Transaction<'_>, area: &Area) -> Result<(), AppError> {
@@ -1599,7 +1893,7 @@ fn get_any_goal_in_transaction(
     id: &str,
 ) -> Result<Option<Goal>, AppError> {
     tx.query_row(
-        "SELECT e.id,e.title,g.horizon,g.status,g.start_date,g.target_date,e.revision,e.created_at,e.updated_at FROM entities e JOIN goals g ON g.entity_id=e.id WHERE e.id=?1 AND e.type_id=?2",
+        "SELECT e.id,e.title,g.horizon,g.status,g.start_date,g.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN goals g ON g.entity_id=e.id WHERE e.id=?1 AND e.type_id=?2",
         params![id, GOAL_TYPE_ID],
         row_goal,
     )
@@ -1607,12 +1901,27 @@ fn get_any_goal_in_transaction(
     .map_err(internal)
 }
 
-fn undo_goal_creation(
+fn get_active_goal_in_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+) -> Result<Option<Goal>, AppError> {
+    tx.query_row(
+        "SELECT e.id,e.title,g.horizon,g.status,g.start_date,g.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN goals g ON g.entity_id=e.id WHERE e.id=?1 AND e.type_id=?2 AND e.deleted_at IS NULL AND e.archived_at IS NULL",
+        params![id, GOAL_TYPE_ID],
+        row_goal,
+    )
+    .optional()
+    .map_err(internal)
+}
+
+fn undo_goal_operation(
     tx: &rusqlite::Transaction<'_>,
     batch: String,
     operation_id: String,
     id: String,
     expected: i32,
+    action_key: &str,
+    payload: &serde_json::Value,
 ) -> Result<ActionReceipt<UndoResult>, AppError> {
     let current = get_any_goal_in_transaction(tx, &id)?.ok_or(AppError::NotFound {
         entity_id: id.clone(),
@@ -1624,12 +1933,71 @@ fn undo_goal_creation(
             actual: current.revision,
         });
     }
+    let (current_archived, current_deleted): (Option<i64>, Option<i64>) = tx
+        .query_row(
+            "SELECT archived_at,deleted_at FROM entities WHERE id=?1",
+            [&id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(internal)?;
+    let (title, horizon, start_date, target_date, archived, deleted, changed_fields) =
+        match action_key {
+            "goal.trash" => (
+                current.title.clone(),
+                current.horizon.clone(),
+                current.start_date.clone(),
+                current.target_date.clone(),
+                false,
+                true,
+                "[\"deletedAt\"]",
+            ),
+            "goal.restore_values" => (
+                payload["title"]
+                    .as_str()
+                    .ok_or_else(|| AppError::IntegrityFailure {
+                        reason: "invalid undo title".into(),
+                    })?
+                    .to_owned(),
+                goal_horizon_from_key(payload["horizon"].as_str().ok_or_else(|| {
+                    AppError::IntegrityFailure {
+                        reason: "invalid undo horizon".into(),
+                    }
+                })?)?,
+                payload["startDate"].as_str().map(str::to_owned),
+                payload["targetDate"].as_str().map(str::to_owned),
+                current_archived.is_some(),
+                current_deleted.is_some(),
+                "[\"title\",\"horizon\",\"startDate\",\"targetDate\"]",
+            ),
+            "goal.restore_lifecycle" => (
+                current.title.clone(),
+                current.horizon.clone(),
+                current.start_date.clone(),
+                current.target_date.clone(),
+                payload["archived"]
+                    .as_bool()
+                    .ok_or_else(|| AppError::IntegrityFailure {
+                        reason: "invalid undo archived state".into(),
+                    })?,
+                payload["deleted"]
+                    .as_bool()
+                    .ok_or_else(|| AppError::IntegrityFailure {
+                        reason: "invalid undo deleted state".into(),
+                    })?,
+                "[\"archivedAt\",\"deletedAt\"]",
+            ),
+            _ => {
+                return Err(AppError::IntegrityFailure {
+                    reason: "unsupported undo action".into(),
+                });
+            }
+        };
     let now = now();
     let revision = expected + 1;
     let changed = tx
         .execute(
-            "UPDATE entities SET deleted_at=?1,updated_at=?1,revision=?2,updated_by_type='user',updated_by_id=?3 WHERE id=?4 AND revision=?5",
-            params![now, revision, DEFAULT_USER_ID, id, expected],
+            "UPDATE entities SET title=?1,archived_at=?2,deleted_at=?3,updated_at=?4,revision=?5,updated_by_type='user',updated_by_id=?6 WHERE id=?7 AND revision=?8",
+            params![title, archived.then_some(now), deleted.then_some(now), now, revision, DEFAULT_USER_ID, id, expected],
         )
         .map_err(internal)?;
     if changed != 1 {
@@ -1639,6 +2007,11 @@ fn undo_goal_creation(
             actual: current.revision,
         });
     }
+    tx.execute(
+        "UPDATE goals SET horizon=?1,start_date=?2,target_date=?3 WHERE entity_id=?4",
+        params![goal_horizon_key(&horizon), start_date, target_date, id],
+    )
+    .map_err(internal)?;
     tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&id])
         .map_err(internal)?;
     let completed_batch = tx
@@ -1654,11 +2027,20 @@ fn undo_goal_creation(
         });
     }
     let reverted = Goal {
+        title,
+        horizon,
+        start_date,
+        target_date,
         revision,
         updated_at_ms: now.to_string(),
+        archived_at_ms: archived.then(|| now.to_string()),
+        deleted_at_ms: deleted.then(|| now.to_string()),
         ..current
     };
-    write_goal_version(tx, &reverted, "[\"deletedAt\"]", &operation_id, now)?;
+    if !archived && !deleted {
+        insert_goal_search(tx, &reverted)?;
+    }
+    write_goal_version(tx, &reverted, changed_fields, &operation_id, now)?;
     let event_id = Uuid::now_v7().to_string();
     tx.execute(
         "INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,'undo.executed',?3,?4,'{}','user',?5,?6,?7)",
@@ -1730,6 +2112,10 @@ fn row_goal(row: &rusqlite::Row<'_>) -> rusqlite::Result<Goal> {
         revision: row.get(6)?,
         created_at_ms: row.get::<_, i64>(7)?.to_string(),
         updated_at_ms: row.get::<_, i64>(8)?.to_string(),
+        archived_at_ms: row.get::<_, Option<i64>>(9)?.map(|value| value.to_string()),
+        deleted_at_ms: row
+            .get::<_, Option<i64>>(10)?
+            .map(|value| value.to_string()),
     })
 }
 
@@ -1739,6 +2125,18 @@ fn goal_horizon_key(horizon: &GoalHorizon) -> &'static str {
         GoalHorizon::Medium => "medium",
         GoalHorizon::Long => "long",
         GoalHorizon::Lifetime => "lifetime",
+    }
+}
+
+fn goal_horizon_from_key(value: &str) -> Result<GoalHorizon, AppError> {
+    match value {
+        "short" => Ok(GoalHorizon::Short),
+        "medium" => Ok(GoalHorizon::Medium),
+        "long" => Ok(GoalHorizon::Long),
+        "lifetime" => Ok(GoalHorizon::Lifetime),
+        _ => Err(AppError::IntegrityFailure {
+            reason: "invalid goal horizon".into(),
+        }),
     }
 }
 fn now() -> i64 {

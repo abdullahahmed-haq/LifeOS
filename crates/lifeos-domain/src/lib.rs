@@ -168,6 +168,8 @@ pub struct Goal {
     pub revision: i32,
     pub created_at_ms: String,
     pub updated_at_ms: String,
+    pub archived_at_ms: Option<String>,
+    pub deleted_at_ms: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
@@ -177,6 +179,18 @@ pub struct CreateGoalRequest {
     pub horizon: GoalHorizon,
     pub start_date: Option<String>,
     pub target_date: Option<String>,
+    pub operation_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateGoalRequest {
+    pub id: String,
+    pub title: String,
+    pub horizon: GoalHorizon,
+    pub start_date: Option<String>,
+    pub target_date: Option<String>,
+    pub expected_revision: i32,
     pub operation_id: String,
 }
 

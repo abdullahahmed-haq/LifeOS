@@ -31,9 +31,18 @@ export function GoalScreen() {
   const intl = useIntl();
   const queryClient = useQueryClient();
   const [undo, setUndo] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Goal | null>(null);
   const goals = useQuery({
     queryKey: ["goals"],
     queryFn: () => unwrapCommand(commands.listGoals()),
+  });
+  const archivedGoals = useQuery({
+    queryKey: ["archived-goals"],
+    queryFn: () => unwrapCommand(commands.listArchivedGoals()),
+  });
+  const trashedGoals = useQuery({
+    queryKey: ["trashed-goals"],
+    queryFn: () => unwrapCommand(commands.listTrashedGoals()),
   });
   const form = useForm<GoalFormValues>({
     defaultValues: {
@@ -68,6 +77,68 @@ export function GoalScreen() {
     onSuccess: () => {
       setUndo(null);
       void queryClient.invalidateQueries({ queryKey: ["goals"] });
+    },
+  });
+  const update = useMutation({
+    mutationFn: ({
+      id,
+      revision,
+      values,
+    }: {
+      id: string;
+      revision: number;
+      values: GoalFormValues;
+    }) =>
+      unwrapCommand<ActionReceipt<Goal>>(
+        commands.updateGoal({
+          id,
+          title: values.title,
+          horizon: values.horizon,
+          startDate: values.startDate || null,
+          targetDate: values.targetDate || null,
+          expectedRevision: revision,
+          operationId: crypto.randomUUID(),
+        }),
+      ),
+    onSuccess: (receipt) => {
+      setEditing(null);
+      setUndo(receipt.undoBatchId);
+      queryClient.setQueryData<Goal[]>(["goals"], (current) =>
+        current?.map((goal) =>
+          goal.id === receipt.data.id ? receipt.data : goal,
+        ),
+      );
+      void queryClient.invalidateQueries({ queryKey: ["goals"] });
+    },
+  });
+  const lifecycle = useMutation({
+    mutationFn: ({
+      id,
+      revision,
+      action,
+    }: {
+      id: string;
+      revision: number;
+      action: "archive" | "trash" | "restore";
+    }) =>
+      unwrapCommand(
+        (action === "archive"
+          ? commands.archiveGoal
+          : action === "trash"
+            ? commands.trashGoal
+            : commands.restoreGoal)({
+          id,
+          expectedRevision: revision,
+          operationId: crypto.randomUUID(),
+        }),
+      ),
+    onSuccess: (receipt) => {
+      setUndo(receipt.undoBatchId);
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["goals"] }),
+        queryClient.invalidateQueries({ queryKey: ["archived-goals"] }),
+        queryClient.invalidateQueries({ queryKey: ["trashed-goals"] }),
+      ]);
     },
   });
 
@@ -159,10 +230,65 @@ export function GoalScreen() {
                   <time dateTime={goal.targetDate}>{goal.targetDate}</time>
                 </small>
               ) : null}
+              <div className="area-actions">
+                <Button onPress={() => setEditing(goal)}>
+                  {intl.formatMessage({ id: "goal.edit" })}
+                </Button>
+                <Button
+                  onPress={() =>
+                    lifecycle.mutate({
+                      id: goal.id,
+                      revision: goal.revision,
+                      action: "archive",
+                    })
+                  }
+                >
+                  {intl.formatMessage({ id: "goal.archive" })}
+                </Button>
+                <Button
+                  onPress={() =>
+                    lifecycle.mutate({
+                      id: goal.id,
+                      revision: goal.revision,
+                      action: "trash",
+                    })
+                  }
+                >
+                  {intl.formatMessage({ id: "goal.trash" })}
+                </Button>
+              </div>
             </article>
           ))}
         </div>
       )}
+      <GoalCollection
+        title={intl.formatMessage({ id: "goal.archivedTitle" })}
+        empty={intl.formatMessage({ id: "goal.archivedEmpty" })}
+        goals={archivedGoals.data}
+        loading={archivedGoals.isLoading}
+        failed={archivedGoals.isError}
+        onRestore={(goal) =>
+          lifecycle.mutate({
+            id: goal.id,
+            revision: goal.revision,
+            action: "restore",
+          })
+        }
+      />
+      <GoalCollection
+        title={intl.formatMessage({ id: "goal.trashedTitle" })}
+        empty={intl.formatMessage({ id: "goal.trashedEmpty" })}
+        goals={trashedGoals.data}
+        loading={trashedGoals.isLoading}
+        failed={trashedGoals.isError}
+        onRestore={(goal) =>
+          lifecycle.mutate({
+            id: goal.id,
+            revision: goal.revision,
+            action: "restore",
+          })
+        }
+      />
       {undo ? (
         <aside className="undo-toast" role="status">
           {intl.formatMessage({ id: "receipt.goalCreated" })}
@@ -171,6 +297,138 @@ export function GoalScreen() {
           </Button>
         </aside>
       ) : null}
+      {editing ? (
+        <EditGoalForm
+          goal={editing}
+          busy={update.isPending}
+          failed={update.isError}
+          onCancel={() => setEditing(null)}
+          onSave={(values) =>
+            update.mutate({
+              id: editing.id,
+              revision: editing.revision,
+              values,
+            })
+          }
+        />
+      ) : null}
     </section>
+  );
+}
+
+function GoalCollection({
+  title,
+  empty,
+  goals,
+  loading,
+  failed,
+  onRestore,
+}: {
+  title: string;
+  empty: string;
+  goals: Goal[] | undefined;
+  loading: boolean;
+  failed: boolean;
+  onRestore: (goal: Goal) => void;
+}) {
+  const intl = useIntl();
+  return (
+    <section className="goal-collection" aria-label={title}>
+      <h2>{title}</h2>
+      {loading ? <p>{intl.formatMessage({ id: "common.loading" })}</p> : null}
+      {failed ? (
+        <p role="alert">{intl.formatMessage({ id: "error.generic" })}</p>
+      ) : null}
+      {goals?.length === 0 ? <p>{empty}</p> : null}
+      <div className="area-grid">
+        {goals?.map((goal) => (
+          <article className="area-card" key={goal.id}>
+            <h3 dir="auto">{goal.title}</h3>
+            <Button onPress={() => onRestore(goal)}>
+              {intl.formatMessage({ id: "goal.restore" })}
+            </Button>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EditGoalForm({
+  goal,
+  busy,
+  failed,
+  onCancel,
+  onSave,
+}: {
+  goal: Goal;
+  busy: boolean;
+  failed: boolean;
+  onCancel: () => void;
+  onSave: (values: GoalFormValues) => void;
+}) {
+  const intl = useIntl();
+  const form = useForm<GoalFormValues>({
+    defaultValues: {
+      title: goal.title,
+      horizon: goal.horizon,
+      startDate: goal.startDate ?? "",
+      targetDate: goal.targetDate ?? "",
+    },
+  });
+  return (
+    <form
+      className="edit-card"
+      aria-labelledby="edit-goal-heading"
+      onSubmit={form.handleSubmit(onSave)}
+    >
+      <h2 id="edit-goal-heading">
+        {intl.formatMessage({ id: "goal.editTitle" })}
+      </h2>
+      <TextField>
+        <Label>{intl.formatMessage({ id: "goal.name" })}</Label>
+        <Input
+          {...form.register("title", { required: true, maxLength: 200 })}
+        />
+      </TextField>
+      <label className="select-field">
+        {intl.formatMessage({ id: "goal.horizon" })}
+        <select {...form.register("horizon")}>
+          <option value="short">
+            {intl.formatMessage({ id: "goal.horizon.short" })}
+          </option>
+          <option value="medium">
+            {intl.formatMessage({ id: "goal.horizon.medium" })}
+          </option>
+          <option value="long">
+            {intl.formatMessage({ id: "goal.horizon.long" })}
+          </option>
+          <option value="lifetime">
+            {intl.formatMessage({ id: "goal.horizon.lifetime" })}
+          </option>
+        </select>
+      </label>
+      <TextField>
+        <Label>{intl.formatMessage({ id: "goal.startDate" })}</Label>
+        <Input type="date" {...form.register("startDate")} />
+      </TextField>
+      <TextField>
+        <Label>{intl.formatMessage({ id: "goal.targetDate" })}</Label>
+        <Input type="date" {...form.register("targetDate")} />
+      </TextField>
+      <div className="area-actions">
+        <Button type="submit" isDisabled={busy}>
+          {intl.formatMessage({ id: "common.save" })}
+        </Button>
+        <Button type="button" onPress={onCancel}>
+          {intl.formatMessage({ id: "common.cancel" })}
+        </Button>
+      </div>
+      {failed ? (
+        <p className="form-error" role="alert">
+          {intl.formatMessage({ id: "error.generic" })}
+        </p>
+      ) : null}
+    </form>
   );
 }

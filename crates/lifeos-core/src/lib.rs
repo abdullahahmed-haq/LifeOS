@@ -7,7 +7,7 @@ use lifeos_domain::{
     CreateAreaRequest, CreateGoalRequest, CredentialReference, Goal, HealthSnapshot,
     PermissionDecision, PermissionPolicy, RevokeCredentialRequest, SaveCredentialRequest,
     SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
-    UpdateAreaRequest, UpsertPermissionPolicyRequest,
+    UpdateAreaRequest, UpdateGoalRequest, UpsertPermissionPolicyRequest,
 };
 use lifeos_safety::evaluate;
 use lifeos_store::EntityStore;
@@ -63,6 +63,18 @@ impl ApplicationCore {
     pub fn list_goals(&self) -> Result<Vec<Goal>, AppError> {
         self.store.lock().map_err(|_| internal())?.list_goals()
     }
+    pub fn list_archived_goals(&self) -> Result<Vec<Goal>, AppError> {
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .list_archived_goals()
+    }
+    pub fn list_trashed_goals(&self) -> Result<Vec<Goal>, AppError> {
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .list_trashed_goals()
+    }
     pub fn permission_policies(&self) -> Result<Vec<PermissionPolicy>, AppError> {
         self.store
             .lock()
@@ -116,6 +128,55 @@ impl ApplicationCore {
             request.horizon,
             start_date,
             target_date,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn update_goal(
+        &self,
+        mut request: UpdateGoalRequest,
+    ) -> Result<ActionReceipt<Goal>, AppError> {
+        self.authorize_local("goal.update")?;
+        request.title = lifeos_domain::validate_title(&request.title)?;
+        let (start_date, target_date) =
+            lifeos_domain::validate_goal_dates(&request.start_date, &request.target_date)?;
+        request.start_date = start_date;
+        request.target_date = target_date;
+        request.operation_id = operation_id(request.operation_id);
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .update_goal(request)
+    }
+    pub fn archive_goal(
+        &self,
+        request: AreaLifecycleRequest,
+    ) -> Result<ActionReceipt<Goal>, AppError> {
+        self.authorize_local("goal.archive")?;
+        self.store.lock().map_err(|_| internal())?.archive_goal(
+            request.id,
+            request.expected_revision,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn trash_goal(
+        &self,
+        request: AreaLifecycleRequest,
+    ) -> Result<ActionReceipt<Goal>, AppError> {
+        self.authorize_local("goal.trash")?;
+        self.store.lock().map_err(|_| internal())?.trash_goal(
+            request.id,
+            request.expected_revision,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn restore_goal(
+        &self,
+        request: AreaLifecycleRequest,
+    ) -> Result<ActionReceipt<Goal>, AppError> {
+        self.authorize_local("goal.restore")?;
+        self.store.lock().map_err(|_| internal())?.restore_goal(
+            request.id,
+            request.expected_revision,
             operation_id(request.operation_id),
         )
     }
@@ -580,6 +641,59 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn goal_lifecycle_is_revision_checked_and_undoable() {
+        let directory = tempdir().unwrap();
+        let core = ApplicationCore::open(directory.path().join("goal-lifecycle.db")).unwrap();
+        let created = core
+            .create_goal(CreateGoalRequest {
+                title: "Read more".into(),
+                horizon: lifeos_domain::GoalHorizon::Medium,
+                start_date: None,
+                target_date: None,
+                operation_id: "create".into(),
+            })
+            .unwrap()
+            .data;
+        let updated = core
+            .update_goal(UpdateGoalRequest {
+                id: created.id.clone(),
+                title: "Read Arabic books".into(),
+                horizon: lifeos_domain::GoalHorizon::Long,
+                start_date: Some("2026-08-12".into()),
+                target_date: Some("2027-08-12".into()),
+                expected_revision: created.revision,
+                operation_id: "update".into(),
+            })
+            .unwrap();
+        assert!(matches!(
+            core.archive_goal(AreaLifecycleRequest {
+                id: created.id.clone(),
+                expected_revision: created.revision,
+                operation_id: "stale".into()
+            }),
+            Err(AppError::ConflictRevision { .. })
+        ));
+        let archived = core
+            .archive_goal(AreaLifecycleRequest {
+                id: created.id.clone(),
+                expected_revision: updated.data.revision,
+                operation_id: "archive".into(),
+            })
+            .unwrap();
+        assert_eq!(core.list_goals().unwrap(), Vec::<Goal>::new());
+        assert_eq!(
+            core.list_archived_goals().unwrap(),
+            vec![archived.data.clone()]
+        );
+        core.undo(UndoRequest {
+            undo_batch_id: archived.undo_batch_id.unwrap(),
+            operation_id: "undo-archive".into(),
+        })
+        .unwrap();
+        assert_eq!(core.list_goals().unwrap()[0].title, "Read Arabic books");
     }
 
     #[test]

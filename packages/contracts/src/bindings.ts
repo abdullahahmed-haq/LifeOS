@@ -15,10 +15,16 @@ export const commands = {
 	revokeCredential: (request: RevokeCredentialRequest) => typedError<ActionReceipt<CredentialReference>, AppError>(__TAURI_INVOKE("revoke_credential", { request })),
 	listAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_areas")),
 	listGoals: () => typedError<Goal[], AppError>(__TAURI_INVOKE("list_goals")),
+	listArchivedGoals: () => typedError<Goal[], AppError>(__TAURI_INVOKE("list_archived_goals")),
+	listTrashedGoals: () => typedError<Goal[], AppError>(__TAURI_INVOKE("list_trashed_goals")),
 	listTrashedAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_trashed_areas")),
 	listArchivedAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_archived_areas")),
 	createArea: (request: CreateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("create_area", { request })),
 	createGoal: (request: CreateGoalRequest) => typedError<ActionReceipt<Goal>, AppError>(__TAURI_INVOKE("create_goal", { request })),
+	updateGoal: (request: UpdateGoalRequest) => typedError<ActionReceipt<Goal>, AppError>(__TAURI_INVOKE("update_goal", { request })),
+	archiveGoal: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Goal>, AppError>(__TAURI_INVOKE("archive_goal", { request })),
+	trashGoal: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Goal>, AppError>(__TAURI_INVOKE("trash_goal", { request })),
+	restoreGoal: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Goal>, AppError>(__TAURI_INVOKE("restore_goal", { request })),
 	updateArea: (request: UpdateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("update_area", { request })),
 	archiveArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("archive_area", { request })),
 	trashArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("trash_area", { request })),
@@ -162,6 +168,8 @@ export type Goal = {
 	revision: number,
 	createdAtMs: string,
 	updatedAtMs: string,
+	archivedAtMs: string | null,
+	deletedAtMs: string | null,
 };
 
 export type GoalHorizon = "short" | "medium" | "long" | "lifetime";
@@ -232,6 +240,16 @@ export type UpdateAppSettingsRequest = {
 export type UpdateAreaRequest = {
 	id: string,
 	title: string,
+	expectedRevision: number,
+	operationId: string,
+};
+
+export type UpdateGoalRequest = {
+	id: string,
+	title: string,
+	horizon: GoalHorizon,
+	startDate: string | null,
+	targetDate: string | null,
 	expectedRevision: number,
 	operationId: string,
 };

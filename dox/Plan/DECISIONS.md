@@ -76,6 +76,12 @@ Status: accepted for first M3 increment
 
 Migration 5 introduces the canonical Goal detail table with the documented horizon, status, optional local start/target dates, constraints, and derived lexical search entry. The first vertical slice creates and lists active Goals and supports undoing creation atomically; it does not claim the remaining Goal lifecycle, Area relation, progress, detail screen, or RelationGraph capabilities. Goals are directional entities, not Area children: their Area link will be a semantic relation when the shared RelationGraph module is introduced. Local dates are ISO calendar dates, validate leap years and order, and are deliberately kept distinct from instants/timezones.
 
+## D-038 — Goal lifecycle extends the Area safety reference
+
+Status: accepted for M3
+
+Goal edit, archive, Trash, restore, and undo use revision-checked ApplicationCore commands and the same single SQLite transaction for canonical state, lexical search projection, entity version, domain event, audit event, undo batch, and inverse operation. Goal snapshots now include lifecycle timestamps so historical records represent the actual state at each revision. Area and Goal share lifecycle semantics but retain typed commands and detail-table writes until the planned generic entity-lifecycle module is extracted; this avoids a premature generic abstraction that would hide required entity-specific invariants.
+
 ## D-019 — Verified JavaScript toolchain pin
 
 The running development host is Node `24.14.0` and pnpm `11.16.0`. Pin those exact versions in `.node-version` and `package.json` rather than retaining a stale Node 22 observation that causes every package command to warn. CI uses the same declared versions. Reassess this pin before a supported-platform release.

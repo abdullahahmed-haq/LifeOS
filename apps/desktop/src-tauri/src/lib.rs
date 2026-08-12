@@ -6,7 +6,7 @@ use lifeos_domain::{
     AreaVersion, AuditEntry, AuditListRequest, CreateAreaRequest, CreateGoalRequest,
     CredentialReference, Goal, HealthSnapshot, PermissionPolicy, RevokeCredentialRequest,
     SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest, UndoResult,
-    UpdateAppSettingsRequest, UpdateAreaRequest, UpsertPermissionPolicyRequest,
+    UpdateAppSettingsRequest, UpdateAreaRequest, UpdateGoalRequest, UpsertPermissionPolicyRequest,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -90,6 +90,16 @@ fn list_goals(state: State<'_, AppState>) -> Result<Vec<Goal>, AppError> {
 }
 #[tauri::command]
 #[specta::specta]
+fn list_archived_goals(state: State<'_, AppState>) -> Result<Vec<Goal>, AppError> {
+    state.core.list_archived_goals()
+}
+#[tauri::command]
+#[specta::specta]
+fn list_trashed_goals(state: State<'_, AppState>) -> Result<Vec<Goal>, AppError> {
+    state.core.list_trashed_goals()
+}
+#[tauri::command]
+#[specta::specta]
 fn list_trashed_areas(state: State<'_, AppState>) -> Result<Vec<Area>, AppError> {
     state.core.list_trashed_areas()
 }
@@ -113,6 +123,38 @@ fn create_goal(
     request: CreateGoalRequest,
 ) -> Result<ActionReceipt<Goal>, AppError> {
     state.core.create_goal(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn update_goal(
+    state: State<'_, AppState>,
+    request: UpdateGoalRequest,
+) -> Result<ActionReceipt<Goal>, AppError> {
+    state.core.update_goal(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn archive_goal(
+    state: State<'_, AppState>,
+    request: AreaLifecycleRequest,
+) -> Result<ActionReceipt<Goal>, AppError> {
+    state.core.archive_goal(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn trash_goal(
+    state: State<'_, AppState>,
+    request: AreaLifecycleRequest,
+) -> Result<ActionReceipt<Goal>, AppError> {
+    state.core.trash_goal(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn restore_goal(
+    state: State<'_, AppState>,
+    request: AreaLifecycleRequest,
+) -> Result<ActionReceipt<Goal>, AppError> {
+    state.core.restore_goal(request)
 }
 #[tauri::command]
 #[specta::specta]
@@ -217,10 +259,16 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             revoke_credential,
             list_areas,
             list_goals,
+            list_archived_goals,
+            list_trashed_goals,
             list_trashed_areas,
             list_archived_areas,
             create_area,
             create_goal,
+            update_goal,
+            archive_goal,
+            trash_goal,
+            restore_goal,
             update_area,
             archive_area,
             trash_area,

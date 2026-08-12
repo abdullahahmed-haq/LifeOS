@@ -4,9 +4,10 @@ use lifeos_credentials::{CredentialStore, NativeCredentialStore};
 use lifeos_domain::{
     ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaHistoryRequest,
     AreaLifecycleRequest, AreaVersion, AuditEntry, AuditListRequest, CONTRACT_VERSION,
-    CreateAreaRequest, CredentialReference, HealthSnapshot, PermissionDecision, PermissionPolicy,
-    RevokeCredentialRequest, SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest,
-    UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest, UpsertPermissionPolicyRequest,
+    CreateAreaRequest, CreateGoalRequest, CredentialReference, Goal, HealthSnapshot,
+    PermissionDecision, PermissionPolicy, RevokeCredentialRequest, SaveCredentialRequest,
+    SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
+    UpdateAreaRequest, UpsertPermissionPolicyRequest,
 };
 use lifeos_safety::evaluate;
 use lifeos_store::EntityStore;
@@ -59,6 +60,9 @@ impl ApplicationCore {
     pub fn list_areas(&self) -> Result<Vec<Area>, AppError> {
         self.store.lock().map_err(|_| internal())?.list_areas()
     }
+    pub fn list_goals(&self) -> Result<Vec<Goal>, AppError> {
+        self.store.lock().map_err(|_| internal())?.list_goals()
+    }
     pub fn permission_policies(&self) -> Result<Vec<PermissionPolicy>, AppError> {
         self.store
             .lock()
@@ -101,6 +105,19 @@ impl ApplicationCore {
             .lock()
             .map_err(|_| internal())?
             .create_area(title, operation_id(request.operation_id))
+    }
+    pub fn create_goal(&self, request: CreateGoalRequest) -> Result<ActionReceipt<Goal>, AppError> {
+        self.authorize_local("goal.create")?;
+        let title = lifeos_domain::validate_title(&request.title)?;
+        let (start_date, target_date) =
+            lifeos_domain::validate_goal_dates(&request.start_date, &request.target_date)?;
+        self.store.lock().map_err(|_| internal())?.create_goal(
+            title,
+            request.horizon,
+            start_date,
+            target_date,
+            operation_id(request.operation_id),
+        )
     }
     pub fn update_area(&self, request: UpdateAreaRequest) -> Result<ActionReceipt<Area>, AppError> {
         self.authorize_local("area.update")?;
@@ -532,6 +549,37 @@ mod tests {
         assert_eq!(entries[0].actor_kind, ActorKind::User);
         assert!(!entries[0].id.is_empty());
         assert!(!entries[0].occurred_at_ms.is_empty());
+    }
+
+    #[test]
+    fn goal_create_persists_the_canonical_record_and_undoes_safely() {
+        let directory = tempdir().unwrap();
+        let database = directory.path().join("goals.db");
+        let core = ApplicationCore::open(&database).unwrap();
+        let created = core
+            .create_goal(CreateGoalRequest {
+                title: "Learn Arabic".into(),
+                horizon: lifeos_domain::GoalHorizon::Long,
+                start_date: Some("2026-08-12".into()),
+                target_date: Some("2027-08-12".into()),
+                operation_id: "goal-create".into(),
+            })
+            .unwrap();
+        assert_eq!(core.list_goals().unwrap(), vec![created.data.clone()]);
+        core.undo(UndoRequest {
+            undo_batch_id: created.undo_batch_id.unwrap(),
+            operation_id: "goal-undo".into(),
+        })
+        .unwrap();
+        assert_eq!(core.list_goals().unwrap(), Vec::<Goal>::new());
+        drop(core);
+        assert!(
+            ApplicationCore::open(&database)
+                .unwrap()
+                .list_goals()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

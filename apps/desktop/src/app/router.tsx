@@ -17,6 +17,7 @@ import {
 } from "react-aria-components";
 import { useIntl } from "react-intl";
 import { AreaScreen } from "../features/areas/area-screen";
+import { GoalScreen } from "../features/goals/goal-screen";
 import { ArchiveScreen } from "../features/lifecycle/archive-screen";
 import { AuditScreen } from "../features/lifecycle/audit-screen";
 import { TrashScreen } from "../features/lifecycle/trash-screen";
@@ -77,7 +78,11 @@ function placeholderRoute<const TPath extends string>(path: TPath) {
 
 const onboardingRoute = placeholderRoute("onboarding");
 const todayRoute = placeholderRoute("today");
-const goalsRoute = placeholderRoute("goals");
+const goalsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "goals",
+  component: GoalScreen,
+});
 const goalDetailRoute = placeholderRoute("goals/$goalId");
 const projectsRoute = placeholderRoute("projects");
 const projectDetailRoute = placeholderRoute("projects/$projectId");
@@ -220,6 +225,9 @@ function ApplicationShell() {
           </Link>
           <Link to="/projects" activeProps={{ "aria-current": "page" }}>
             {intl.formatMessage({ id: "navigation.projects" })}
+          </Link>
+          <Link to="/goals" activeProps={{ "aria-current": "page" }}>
+            {intl.formatMessage({ id: "navigation.goals" })}
           </Link>
           <Link to="/settings/general" activeProps={{ "aria-current": "page" }}>
             {intl.formatMessage({ id: "navigation.settings" })}

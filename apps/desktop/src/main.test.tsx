@@ -1,5 +1,6 @@
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -12,11 +13,13 @@ const mocks = vi.hoisted(() => ({
   appSettings: vi.fn(),
   updateAppSettings: vi.fn(),
   listAreas: vi.fn(),
+  listGoals: vi.fn(),
   listArchivedAreas: vi.fn(),
   archiveArea: vi.fn(),
   areaHistory: vi.fn(),
   auditEntries: vi.fn(),
   createArea: vi.fn(),
+  createGoal: vi.fn(),
   listTrashedAreas: vi.fn(),
   restoreArea: vi.fn(),
   trashArea: vi.fn(),
@@ -28,9 +31,11 @@ vi.mock("@lifeos/contracts/bindings", () => ({
     appSettings: mocks.appSettings,
     updateAppSettings: mocks.updateAppSettings,
     listAreas: mocks.listAreas,
+    listGoals: mocks.listGoals,
     listArchivedAreas: mocks.listArchivedAreas,
     listTrashedAreas: mocks.listTrashedAreas,
     createArea: mocks.createArea,
+    createGoal: mocks.createGoal,
     archiveArea: mocks.archiveArea,
     areaHistory: mocks.areaHistory,
     auditEntries: mocks.auditEntries,
@@ -82,9 +87,11 @@ describe("LifeOS application shell", () => {
       },
     }));
     mocks.listAreas.mockResolvedValue({ status: "ok", data: [] });
+    mocks.listGoals.mockResolvedValue({ status: "ok", data: [] });
     mocks.listArchivedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.listTrashedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.createArea.mockReset();
+    mocks.createGoal.mockReset();
     mocks.archiveArea.mockReset();
     mocks.areaHistory.mockReset();
     mocks.auditEntries.mockResolvedValue({ status: "ok", data: [] });
@@ -384,5 +391,55 @@ describe("LifeOS application shell", () => {
     ).toBeInTheDocument();
     expect(mocks.auditEntries).toHaveBeenCalledWith({ limit: 100 });
     expect(screen.getByRole("listitem")).toHaveTextContent("area.updated");
+  });
+
+  it("creates a Goal through the canonical typed command", async () => {
+    const user = userEvent.setup();
+    mocks.createGoal.mockResolvedValue({
+      status: "ok",
+      data: {
+        data: {
+          id: "018f0000-0000-7000-8000-000000000005",
+          title: "Learn Arabic",
+          horizon: "long",
+          status: "active",
+          startDate: "2026-08-12",
+          targetDate: "2027-08-12",
+          revision: 1,
+          createdAtMs: "1",
+          updatedAtMs: "1",
+        },
+        operationId: "goal-create",
+        affectedEntityIds: ["018f0000-0000-7000-8000-000000000005"],
+        resultingRevisions: [],
+        domainEventIds: ["goal-event"],
+        undoBatchId: "goal-undo",
+      },
+    });
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Goals" }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "Goal name" }),
+      "Learn Arabic",
+    );
+    await user.selectOptions(screen.getByLabelText("Horizon"), "long");
+    fireEvent.change(screen.getByLabelText("Start date"), {
+      target: { value: "2026-08-12" },
+    });
+    fireEvent.change(screen.getByLabelText("Target date"), {
+      target: { value: "2027-08-12" },
+    });
+    await user.click(screen.getByRole("button", { name: "Create goal" }));
+
+    expect(mocks.createGoal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Learn Arabic",
+        horizon: "long",
+        startDate: "2026-08-12",
+        targetDate: "2027-08-12",
+      }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Goal created");
   });
 });

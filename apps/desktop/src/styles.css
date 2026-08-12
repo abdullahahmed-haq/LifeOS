@@ -193,6 +193,15 @@ body {
   padding: 10px;
   font: inherit;
 }
+.goal-create-card select {
+  min-block-size: 42px;
+  border: 1px solid #b7c7c5;
+  border-radius: 9px;
+  padding: 10px;
+  background: #fff;
+  color: #273743;
+  font: inherit;
+}
 .area-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

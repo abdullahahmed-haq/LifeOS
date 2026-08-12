@@ -12,6 +12,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - Completed — F0 Area version-history increment: the Area card links to a typed, bounded, newest-first canonical snapshot timeline at `/versions/$entityId`.
 - Completed — F0 bounded audit-timeline increment: `/audit` uses a typed Core query capped at 100 records and renders only safe action, actor-category, and timestamp metadata.
 - Completed — F0 typed route-registry increment: every V0.1 planned screen path is registered with TanStack Router; only existing domain slices are functional and all other routes explicitly state their in-progress status.
+- Completed — M3 Goal foundation increment: an append-only Goal schema, typed Core/Tauri contracts, canonical SQLite create/list/search/audit/version/undo behavior, and a localized Goals creation screen are implemented. Goal editing, archive/Trash/restore, semantic relations, detail, and progress remain pending M3 slices.
 
 - Completed — Read all 12 DOX source contracts and inventory their product, data, architecture, security, UX, i18n, test, and delivery requirements.
 - Completed — Recursively inspect UI V001. It contains only the El Messiri font and an empty `ui install.md`; no implementation/screens/assets are available.
@@ -35,6 +36,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - Completed — M2 Entity/safety spine and Area vertical slice.
 - In progress — F0 Foundation completion and architecture hardening.
 - Pending — M3 Projects, tasks, goals, and relations.
+- In progress — M3 Projects, tasks, goals, and relations: Goal foundation delivered; generalized lifecycle, Goal completion and relations, Projects, Tasks, milestones, and reusable views remain pending.
 - Pending — M4 Today, calendar, habits, people/requests, events, and focus.
 - Pending — M5 Progress, Home, reports, and reviews.
 - Pending — M6 Knowledge, customization, automation, backup/import/export.
@@ -53,6 +55,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - Blocked — Windows and macOS Intel build/runtime evidence requires CI runners not present on this ARM64 host; CI configuration will be added and local limitations reported.
 - Blocked — Release signing/notarization and updater publication require external certificates/keys/endpoints; development packaging can proceed without publishing.
 - Blocked — One corrupt writable HFS image from an earlier local DMG attempt remains stuck at `/dev/disk6` with an I/O-error mount; macOS refuses normal and forced detach. It is under ignored `target/` output and requires a host restart to clear. CI-mode packaging bypassed Finder interaction and produced a verified final DMG despite this host-only condition.
+- Pending — Frontend bundle splitting: the current production JavaScript bundle is 500.01 kB minified (157.43 kB gzip) and Vite emits its default size warning. Route-level loading/code splitting will be introduced before large M3/M4 screens accumulate; the warning does not fail the current build.
 
 ## Evidence log
 
@@ -65,6 +68,7 @@ Status vocabulary: Pending / In progress / Completed / Blocked.
 - F0 bounded Area history verification: generated contract drift check, type checking, linting, formatting, renderer build, Rust formatting, Clippy with warnings denied, and Rust workspace tests passed. JavaScript tests: 9 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 20 passed, 0 failed, including history ordering and 100-record cap behavior. `CI=true pnpm tauri build` produced a fresh macOS ARM64 DMG; strict code-sign and `hdiutil verify` passed and its SHA-256 is `3b84c1929485900135f6918556dd25bacdc7bb95a8b8bafb4a92a18af7d1b5ff`.
 - F0 bounded audit-timeline verification: generated contract drift check, TypeScript type checking, linting, formatting, renderer build, Rust formatting, and Clippy with warnings denied passed. JavaScript tests: 10 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 24 passed, 0 failed, including audit cap/order/safe-projection assertions and the native macOS Keychain round-trip. `CI=true pnpm tauri build` produced a fresh macOS ARM64 bundle at 2026-08-12 11:07 local host time; strict code-sign and `hdiutil verify` passed and its SHA-256 is `7d3b43c1f98599374cef69ab43b46bcb604265079d45a85160a3928beed68362`.
 - F0 typed route-registry verification: generated contract drift check, TypeScript type checking, linting, formatting, renderer build, Rust formatting, and Clippy with warnings denied passed. JavaScript tests: 10 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 24 passed, 0 failed. `CI=true pnpm tauri build` produced a fresh macOS ARM64 bundle at 2026-08-12 11:15 local host time; strict code-sign and `hdiutil verify` passed and its SHA-256 is `e0ecf9129a55360612e1ef7d83d74d824656ab104b0e392ca54d26970f69f1d1`.
+- M3 Goal foundation verification: generated contract drift check, TypeScript type checking, linting, formatting, renderer build, Rust formatting, and Clippy with warnings denied passed. JavaScript tests: 11 desktop tests passed; contracts/i18n intentionally have no test files. Rust workspace tests: 25 passed, 0 failed, including Goal create/reopen/undo and valid leap-day/reversed-date checks. The renderer bundle is 500.01 kB minified/157.43 kB gzip and emits Vite's non-failing default chunk-size warning. `CI=true pnpm tauri build` produced a fresh macOS ARM64 bundle at 2026-08-12 11:40 local host time; strict code-sign and `hdiutil verify` passed and its SHA-256 is `5a3093f88db4b00019f4a31ddcbcfb988234c5e047a58f50da647d7ef10f2458`.
 
 - Source counts: DOX 12 files / approximately 352 KiB; UI V001 2 files / approximately 140 KiB; Full App initially empty.
 - Git: `origin=https://github.com/abdullahahmed-haq/LifeOS.git`; remote initially empty; GitHub CLI authenticated as `abdullahahmed-haq`.

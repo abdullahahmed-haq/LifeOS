@@ -3,10 +3,10 @@ use std::{fs, path::PathBuf};
 use lifeos_core::ApplicationCore;
 use lifeos_domain::{
     ActionReceipt, AppError, AppSettings, Area, AreaHistoryRequest, AreaLifecycleRequest,
-    AreaVersion, AuditEntry, AuditListRequest, CreateAreaRequest, CredentialReference,
-    HealthSnapshot, PermissionPolicy, RevokeCredentialRequest, SaveCredentialRequest,
-    SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
-    UpdateAreaRequest, UpsertPermissionPolicyRequest,
+    AreaVersion, AuditEntry, AuditListRequest, CreateAreaRequest, CreateGoalRequest,
+    CredentialReference, Goal, HealthSnapshot, PermissionPolicy, RevokeCredentialRequest,
+    SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest, UndoResult,
+    UpdateAppSettingsRequest, UpdateAreaRequest, UpsertPermissionPolicyRequest,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -85,6 +85,11 @@ fn list_areas(state: State<'_, AppState>) -> Result<Vec<Area>, AppError> {
 }
 #[tauri::command]
 #[specta::specta]
+fn list_goals(state: State<'_, AppState>) -> Result<Vec<Goal>, AppError> {
+    state.core.list_goals()
+}
+#[tauri::command]
+#[specta::specta]
 fn list_trashed_areas(state: State<'_, AppState>) -> Result<Vec<Area>, AppError> {
     state.core.list_trashed_areas()
 }
@@ -100,6 +105,14 @@ fn create_area(
     request: CreateAreaRequest,
 ) -> Result<ActionReceipt<Area>, AppError> {
     state.core.create_area(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn create_goal(
+    state: State<'_, AppState>,
+    request: CreateGoalRequest,
+) -> Result<ActionReceipt<Goal>, AppError> {
+    state.core.create_goal(request)
 }
 #[tauri::command]
 #[specta::specta]
@@ -203,9 +216,11 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             save_credential,
             revoke_credential,
             list_areas,
+            list_goals,
             list_trashed_areas,
             list_archived_areas,
             create_area,
+            create_goal,
             update_area,
             archive_area,
             trash_area,

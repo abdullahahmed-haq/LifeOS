@@ -6,6 +6,7 @@ pub const DEFAULT_WORKSPACE_ID: &str = "00000000-0000-7000-8000-000000000001";
 pub const DEFAULT_USER_ID: &str = "00000000-0000-7000-8000-000000000002";
 pub const DEFAULT_DEVICE_ID: &str = "00000000-0000-7000-8000-000000000003";
 pub const AREA_TYPE_ID: &str = "00000000-0000-7000-8000-000000000004";
+pub const GOAL_TYPE_ID: &str = "00000000-0000-7000-8000-000000000005";
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -143,6 +144,39 @@ pub struct UpdateAreaRequest {
 pub struct AreaLifecycleRequest {
     pub id: String,
     pub expected_revision: i32,
+    pub operation_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalHorizon {
+    Short,
+    Medium,
+    Long,
+    Lifetime,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Goal {
+    pub id: String,
+    pub title: String,
+    pub horizon: GoalHorizon,
+    pub status: String,
+    pub start_date: Option<String>,
+    pub target_date: Option<String>,
+    pub revision: i32,
+    pub created_at_ms: String,
+    pub updated_at_ms: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateGoalRequest {
+    pub title: String,
+    pub horizon: GoalHorizon,
+    pub start_date: Option<String>,
+    pub target_date: Option<String>,
     pub operation_id: String,
 }
 
@@ -296,6 +330,64 @@ pub fn validate_title(value: &str) -> Result<String, AppError> {
     Ok(title.to_owned())
 }
 
+pub fn validate_goal_dates(
+    start_date: &Option<String>,
+    target_date: &Option<String>,
+) -> Result<(Option<String>, Option<String>), AppError> {
+    let start_date = validate_optional_local_date(start_date, "startDate")?;
+    let target_date = validate_optional_local_date(target_date, "targetDate")?;
+    if matches!((&start_date, &target_date), (Some(start), Some(target)) if target < start) {
+        return Err(AppError::Validation {
+            field: "targetDate".into(),
+            reason: "must not be before startDate".into(),
+        });
+    }
+    Ok((start_date, target_date))
+}
+
+fn validate_optional_local_date(
+    value: &Option<String>,
+    field: &str,
+) -> Result<Option<String>, AppError> {
+    let Some(value) = value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let shape_is_valid = value.len() == 10
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && value
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit());
+    if !shape_is_valid {
+        return Err(AppError::Validation {
+            field: field.into(),
+            reason: "must use ISO local-date format YYYY-MM-DD".into(),
+        });
+    }
+    let year = value[0..4].parse::<u16>().unwrap_or_default();
+    let month = value[5..7].parse::<u8>().unwrap_or_default();
+    let day = value[8..10].parse::<u8>().unwrap_or_default();
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        _ => 0,
+    };
+    if year == 0 || day == 0 || day > max_day {
+        return Err(AppError::Validation {
+            field: field.into(),
+            reason: "must be a valid calendar date".into(),
+        });
+    }
+    Ok(Some(value.to_owned()))
+}
+
 pub fn validate_settings(request: &UpdateAppSettingsRequest) -> Result<(), AppError> {
     if !matches!(request.locale.as_str(), "en" | "ar") {
         return Err(AppError::Validation {
@@ -429,6 +521,22 @@ mod tests {
         assert!(matches!(
             validate_page_limit(0),
             Err(AppError::Validation { field, .. }) if field == "limit"
+        ));
+    }
+
+    #[test]
+    fn goal_dates_require_real_ordered_local_calendar_dates() {
+        assert_eq!(
+            validate_goal_dates(&Some("2024-02-29".into()), &Some("2024-03-01".into())).unwrap(),
+            (Some("2024-02-29".into()), Some("2024-03-01".into()))
+        );
+        assert!(matches!(
+            validate_goal_dates(&Some("2025-02-29".into()), &None),
+            Err(AppError::Validation { field, .. }) if field == "startDate"
+        ));
+        assert!(matches!(
+            validate_goal_dates(&Some("2026-08-13".into()), &Some("2026-08-12".into())),
+            Err(AppError::Validation { field, .. }) if field == "targetDate"
         ));
     }
 }

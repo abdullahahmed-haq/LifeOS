@@ -70,6 +70,12 @@ Status: accepted for F0
 
 The full V0.1 information architecture now has concrete TanStack Router route definitions, including detail, review, integration, and settings paths. Functional screens keep their owning domain route; every other route renders the explicit localized in-progress surface. This is navigation infrastructure only: a routable placeholder is never counted as a delivered product screen. The registry uses literal route paths so TypeScript continues to reject links to undefined paths as more domain screens replace placeholders.
 
+## D-037 — Goal foundation uses directional fields, not containment
+
+Status: accepted for first M3 increment
+
+Migration 5 introduces the canonical Goal detail table with the documented horizon, status, optional local start/target dates, constraints, and derived lexical search entry. The first vertical slice creates and lists active Goals and supports undoing creation atomically; it does not claim the remaining Goal lifecycle, Area relation, progress, detail screen, or RelationGraph capabilities. Goals are directional entities, not Area children: their Area link will be a semantic relation when the shared RelationGraph module is introduced. Local dates are ISO calendar dates, validate leap years and order, and are deliberately kept distinct from instants/timezones.
+
 ## D-019 — Verified JavaScript toolchain pin
 
 The running development host is Node `24.14.0` and pnpm `11.16.0`. Pin those exact versions in `.node-version` and `package.json` rather than retaining a stale Node 22 observation that causes every package command to warn. CI uses the same declared versions. Reassess this pin before a supported-platform release.

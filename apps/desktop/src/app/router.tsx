@@ -17,6 +17,7 @@ import {
 } from "react-aria-components";
 import { useIntl } from "react-intl";
 import { AreaScreen } from "../features/areas/area-screen";
+import { ArchiveScreen } from "../features/lifecycle/archive-screen";
 import { TrashScreen } from "../features/lifecycle/trash-screen";
 import { GeneralSettingsScreen } from "../features/settings/general-settings-screen";
 import { usePresentation } from "./presentation";
@@ -48,6 +49,11 @@ const trashRoute = createRoute({
   path: "trash",
   component: TrashScreen,
 });
+const archiveRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "archive",
+  component: ArchiveScreen,
+});
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "settings/general",
@@ -69,6 +75,7 @@ const routeTree = rootRoute.addChildren([
   homeRoute,
   todayRoute,
   projectsRoute,
+  archiveRoute,
   trashRoute,
   settingsRoute,
   integrationsRoute,
@@ -124,6 +131,9 @@ function ApplicationShell() {
           </Link>
           <Link to="/trash" activeProps={{ "aria-current": "page" }}>
             {intl.formatMessage({ id: "navigation.trash" })}
+          </Link>
+          <Link to="/archive" activeProps={{ "aria-current": "page" }}>
+            {intl.formatMessage({ id: "navigation.archive" })}
           </Link>
         </nav>
         <div className="presentation-controls">

@@ -541,6 +541,15 @@ impl EntityStore {
             .map_err(internal)
     }
 
+    pub fn list_archived_areas(&self) -> Result<Vec<Area>, AppError> {
+        let mut statement = self.connection.prepare("SELECT id,title,revision,created_at,updated_at,archived_at,deleted_at FROM entities WHERE type_id=?1 AND archived_at IS NOT NULL AND deleted_at IS NULL ORDER BY archived_at DESC").map_err(internal)?;
+        statement
+            .query_map([AREA_TYPE_ID], row_area)
+            .map_err(internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(internal)
+    }
+
     pub fn create_area(
         &mut self,
         title: String,
@@ -1589,10 +1598,12 @@ mod tests {
             )
             .unwrap();
         assert!(store.list_areas().unwrap().is_empty());
+        assert_eq!(store.list_archived_areas().unwrap().len(), 1);
         let restored = store
             .undo(archived.undo_batch_id.unwrap(), "undo-archive".into())
             .unwrap();
         assert_eq!(restored.data.revision, 3);
+        assert!(store.list_archived_areas().unwrap().is_empty());
         let trashed = store
             .trash_area(created.data.id.clone(), 3, "area-trash".into())
             .unwrap();

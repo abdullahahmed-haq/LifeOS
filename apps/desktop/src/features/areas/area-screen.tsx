@@ -25,6 +25,7 @@ export function AreaScreen() {
   const intl = useIntl();
   const queryClient = useQueryClient();
   const [undo, setUndo] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Area | null>(null);
   const areas = useQuery({
     queryKey: ["areas"],
     queryFn: () => unwrapCommand(commands.listAreas()),
@@ -75,6 +76,30 @@ export function AreaScreen() {
             }),
       ),
     onSuccess: (receipt) => {
+      setUndo(receipt.undoBatchId);
+      void queryClient.invalidateQueries({ queryKey: ["areas"] });
+    },
+  });
+  const update = useMutation({
+    mutationFn: ({
+      id,
+      title,
+      revision,
+    }: {
+      id: string;
+      title: string;
+      revision: number;
+    }) =>
+      unwrapCommand<ActionReceipt<Area>>(
+        commands.updateArea({
+          id,
+          title,
+          expectedRevision: revision,
+          operationId: crypto.randomUUID(),
+        }),
+      ),
+    onSuccess: (receipt) => {
+      setEditing(null);
       setUndo(receipt.undoBatchId);
       void queryClient.invalidateQueries({ queryKey: ["areas"] });
     },
@@ -141,6 +166,9 @@ export function AreaScreen() {
                 )}
               </small>
               <div className="area-actions">
+                <Button onPress={() => setEditing(area)}>
+                  {intl.formatMessage({ id: "area.edit" })}
+                </Button>
                 <Button
                   onPress={() =>
                     lifecycle.mutate({
@@ -176,6 +204,68 @@ export function AreaScreen() {
           </Button>
         </aside>
       ) : null}
+      {editing ? (
+        <EditAreaForm
+          area={editing}
+          busy={update.isPending}
+          failed={update.isError}
+          onCancel={() => setEditing(null)}
+          onSave={(title) =>
+            update.mutate({
+              id: editing.id,
+              title,
+              revision: editing.revision,
+            })
+          }
+        />
+      ) : null}
     </section>
+  );
+}
+
+function EditAreaForm({
+  area,
+  busy,
+  failed,
+  onCancel,
+  onSave,
+}: {
+  area: Area;
+  busy: boolean;
+  failed: boolean;
+  onCancel: () => void;
+  onSave: (title: string) => void;
+}) {
+  const intl = useIntl();
+  const form = useForm<FormValues>({ defaultValues: { title: area.title } });
+  return (
+    <form
+      className="edit-card"
+      aria-labelledby="edit-area-heading"
+      onSubmit={form.handleSubmit(({ title }) => onSave(title))}
+    >
+      <h2 id="edit-area-heading">
+        {intl.formatMessage({ id: "area.editTitle" })}
+      </h2>
+      <TextField>
+        <Label>{intl.formatMessage({ id: "area.name" })}</Label>
+        <Input
+          {...form.register("title", { required: true, maxLength: 200 })}
+        />
+      </TextField>
+      <div className="area-actions">
+        <Button type="submit" isDisabled={busy}>
+          {intl.formatMessage({ id: "common.save" })}
+        </Button>
+        <Button type="button" onPress={onCancel}>
+          {intl.formatMessage({ id: "common.cancel" })}
+        </Button>
+      </div>
+      {failed ? (
+        <p className="form-error" role="alert">
+          {intl.formatMessage({ id: "error.generic" })}
+        </p>
+      ) : null}
+    </form>
   );
 }

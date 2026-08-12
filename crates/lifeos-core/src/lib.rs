@@ -88,6 +88,12 @@ impl ApplicationCore {
             .map_err(|_| internal())?
             .list_trashed_areas()
     }
+    pub fn list_archived_areas(&self) -> Result<Vec<Area>, AppError> {
+        self.store
+            .lock()
+            .map_err(|_| internal())?
+            .list_archived_areas()
+    }
     pub fn create_area(&self, request: CreateAreaRequest) -> Result<ActionReceipt<Area>, AppError> {
         self.authorize_local("area.create")?;
         let title = lifeos_domain::validate_title(&request.title)?;

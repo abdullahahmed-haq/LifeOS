@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,11 +12,13 @@ const mocks = vi.hoisted(() => ({
   appSettings: vi.fn(),
   updateAppSettings: vi.fn(),
   listAreas: vi.fn(),
+  listArchivedAreas: vi.fn(),
   archiveArea: vi.fn(),
   createArea: vi.fn(),
   listTrashedAreas: vi.fn(),
   restoreArea: vi.fn(),
   trashArea: vi.fn(),
+  updateArea: vi.fn(),
 }));
 
 vi.mock("@lifeos/contracts/bindings", () => ({
@@ -18,12 +26,14 @@ vi.mock("@lifeos/contracts/bindings", () => ({
     appSettings: mocks.appSettings,
     updateAppSettings: mocks.updateAppSettings,
     listAreas: mocks.listAreas,
+    listArchivedAreas: mocks.listArchivedAreas,
     listTrashedAreas: mocks.listTrashedAreas,
     createArea: mocks.createArea,
     archiveArea: mocks.archiveArea,
     trashArea: mocks.trashArea,
     restoreArea: mocks.restoreArea,
     undoAction: vi.fn(),
+    updateArea: mocks.updateArea,
   },
 }));
 
@@ -62,11 +72,13 @@ describe("LifeOS application shell", () => {
       },
     }));
     mocks.listAreas.mockResolvedValue({ status: "ok", data: [] });
+    mocks.listArchivedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.listTrashedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.createArea.mockReset();
     mocks.archiveArea.mockReset();
     mocks.trashArea.mockReset();
     mocks.restoreArea.mockReset();
+    mocks.updateArea.mockReset();
   });
 
   it("renders the empty Areas state and switches the document to Arabic RTL", async () => {
@@ -184,6 +196,83 @@ describe("LifeOS application shell", () => {
       expect.objectContaining({
         id: "018f0000-0000-7000-8000-000000000001",
         expectedRevision: 3,
+      }),
+    );
+  });
+
+  it("edits an Area through the revision-checked canonical command", async () => {
+    const user = userEvent.setup();
+    mocks.listAreas.mockResolvedValue({
+      status: "ok",
+      data: [
+        {
+          id: "018f0000-0000-7000-8000-000000000001",
+          title: "Health",
+          revision: 3,
+          createdAtMs: "1",
+          updatedAtMs: "2",
+          archivedAtMs: null,
+          deletedAtMs: null,
+        },
+      ],
+    });
+    mocks.updateArea.mockResolvedValue({
+      status: "ok",
+      data: {
+        data: {},
+        operationId: "area-update",
+        affectedEntityIds: [],
+        resultingRevisions: [],
+        domainEventIds: [],
+        undoBatchId: "undo-update",
+      },
+    });
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const editForm = screen.getByRole("form", { name: "Edit area" });
+    const input = within(editForm).getByRole("textbox", { name: "Area name" });
+    await user.clear(input);
+    await user.type(input, "Wellbeing");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mocks.updateArea).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "018f0000-0000-7000-8000-000000000001",
+        title: "Wellbeing",
+        expectedRevision: 3,
+      }),
+    );
+  });
+
+  it("restores an archived Area through the Archive route", async () => {
+    const user = userEvent.setup();
+    mocks.listArchivedAreas.mockResolvedValue({
+      status: "ok",
+      data: [
+        {
+          id: "018f0000-0000-7000-8000-000000000002",
+          title: "Health",
+          revision: 4,
+          createdAtMs: "1",
+          updatedAtMs: "2",
+          archivedAtMs: "2",
+          deletedAtMs: null,
+        },
+      ],
+    });
+    mocks.restoreArea.mockResolvedValue({ status: "ok", data: {} });
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Archive" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Restore area" }),
+    );
+
+    expect(mocks.restoreArea).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "018f0000-0000-7000-8000-000000000002",
+        expectedRevision: 4,
       }),
     );
   });

@@ -15,6 +15,7 @@ export const commands = {
 	revokeCredential: (request: RevokeCredentialRequest) => typedError<ActionReceipt<CredentialReference>, AppError>(__TAURI_INVOKE("revoke_credential", { request })),
 	listAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_areas")),
 	listTrashedAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_trashed_areas")),
+	listArchivedAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_archived_areas")),
 	createArea: (request: CreateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("create_area", { request })),
 	updateArea: (request: UpdateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("update_area", { request })),
 	archiveArea: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("archive_area", { request })),

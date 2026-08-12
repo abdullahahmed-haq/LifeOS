@@ -89,6 +89,11 @@ fn list_trashed_areas(state: State<'_, AppState>) -> Result<Vec<Area>, AppError>
 }
 #[tauri::command]
 #[specta::specta]
+fn list_archived_areas(state: State<'_, AppState>) -> Result<Vec<Area>, AppError> {
+    state.core.list_archived_areas()
+}
+#[tauri::command]
+#[specta::specta]
 fn create_area(
     state: State<'_, AppState>,
     request: CreateAreaRequest,
@@ -182,6 +187,7 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             revoke_credential,
             list_areas,
             list_trashed_areas,
+            list_archived_areas,
             create_area,
             update_area,
             archive_area,

@@ -46,6 +46,12 @@ Status: accepted for F0
 
 Use `keyring` 4.1.6 (MIT OR Apache-2.0) as the Rust-only adapter to the macOS Keychain and Windows native credential store. SQLite migration 4 stores an opaque UUIDv7 credential reference, kind, revision, and revocation timestamp only; it never receives secret bytes. A Core mutation writes the OS secret before creating the reference and compensates by revoking the secret if persistence fails. Revocation removes the native secret before marking the reference revoked. Tauri may receive a user-entered secret for this narrowly scoped write command but never returns, logs, caches, or persists it in the renderer.
 
+## D-033 — Area management remains the lifecycle reference slice
+
+Status: accepted for F0
+
+Areas now have real active, archived, and Trash collections. Archive and restore reuse the existing lifecycle transaction and revision check; no separate archive-only state exists in React. Editing stays inline and calls the typed canonical update command with the entity revision. This completes Areas as the UI reference slice for future generic lifecycle surfaces, while a reusable cross-entity lifecycle module remains an F0 follow-up.
+
 ## D-019 — Verified JavaScript toolchain pin
 
 The running development host is Node `24.14.0` and pnpm `11.16.0`. Pin those exact versions in `.node-version` and `package.json` rather than retaining a stale Node 22 observation that causes every package command to warn. CI uses the same declared versions. Reassess this pin before a supported-platform release.

@@ -8,6 +8,7 @@ export const messages = {
     "navigation.projects": "Projects",
     "navigation.settings": "Settings",
     "navigation.trash": "Trash",
+    "navigation.archive": "Archive",
     "navigation.primary": "Primary navigation",
     "settings.general.title": "General settings",
     "settings.general.description":
@@ -34,6 +35,13 @@ export const messages = {
     "area.name": "Area name",
     "area.count": "{count, plural, one {# area} other {# areas}}",
     "area.archive": "Archive",
+    "area.edit": "Edit",
+    "area.editTitle": "Edit area",
+    "archive.title": "Archived areas",
+    "archive.description":
+      "Keep completed or paused areas out of the active workspace.",
+    "archive.empty": "No archived areas",
+    "archive.restore": "Restore area",
     "area.trash": "Move to Trash",
     "trash.title": "Trash",
     "trash.description": "Restore an area when you are ready to bring it back.",
@@ -74,6 +82,7 @@ export const messages = {
     "navigation.projects": "المشاريع",
     "navigation.settings": "الإعدادات",
     "navigation.trash": "سلة المحذوفات",
+    "navigation.archive": "الأرشيف",
     "navigation.primary": "التنقل الرئيسي",
     "settings.general.title": "الإعدادات العامة",
     "settings.general.description":
@@ -99,6 +108,13 @@ export const messages = {
     "area.name": "اسم المجال",
     "area.count": "{count, plural, one {# مجال} other {# مجالات}}",
     "area.archive": "أرشفة",
+    "area.edit": "تعديل",
+    "area.editTitle": "تعديل المجال",
+    "archive.title": "المجالات المؤرشفة",
+    "archive.description":
+      "احتفظ بالمجالات المكتملة أو المتوقفة خارج مساحة العمل النشطة.",
+    "archive.empty": "لا توجد مجالات مؤرشفة",
+    "archive.restore": "استعادة المجال",
     "area.trash": "نقل إلى سلة المحذوفات",
     "trash.title": "سلة المحذوفات",
     "trash.description": "استعد المجال عندما تكون جاهزًا لإعادته.",

@@ -4,10 +4,10 @@ use lifeos_credentials::{CredentialStore, NativeCredentialStore};
 use lifeos_domain::{
     ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaHistoryRequest,
     AreaLifecycleRequest, AreaVersion, AuditEntry, AuditListRequest, CONTRACT_VERSION,
-    CreateAreaRequest, CreateGoalRequest, CredentialReference, Goal, HealthSnapshot,
-    PermissionDecision, PermissionPolicy, RevokeCredentialRequest, SaveCredentialRequest,
-    SearchRequest, SearchResult, UndoRequest, UndoResult, UpdateAppSettingsRequest,
-    UpdateAreaRequest, UpdateGoalRequest, UpsertPermissionPolicyRequest,
+    CreateAreaRequest, CreateGoalRequest, CreateProjectRequest, CredentialReference, Goal,
+    HealthSnapshot, PermissionDecision, PermissionPolicy, Project, RevokeCredentialRequest,
+    SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest, UndoResult,
+    UpdateAppSettingsRequest, UpdateAreaRequest, UpdateGoalRequest, UpsertPermissionPolicyRequest,
 };
 use lifeos_safety::evaluate;
 use lifeos_store::EntityStore;
@@ -62,6 +62,9 @@ impl ApplicationCore {
     }
     pub fn list_goals(&self) -> Result<Vec<Goal>, AppError> {
         self.store.lock().map_err(|_| internal())?.list_goals()
+    }
+    pub fn list_projects(&self) -> Result<Vec<Project>, AppError> {
+        self.store.lock().map_err(|_| internal())?.list_projects()
     }
     pub fn list_archived_goals(&self) -> Result<Vec<Goal>, AppError> {
         self.store
@@ -126,6 +129,24 @@ impl ApplicationCore {
         self.store.lock().map_err(|_| internal())?.create_goal(
             title,
             request.horizon,
+            start_date,
+            target_date,
+            operation_id(request.operation_id),
+        )
+    }
+    pub fn create_project(
+        &self,
+        request: CreateProjectRequest,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        self.authorize_local("project.create")?;
+        let title = lifeos_domain::validate_title(&request.title)?;
+        let (start_date, target_date) =
+            lifeos_domain::validate_goal_dates(&request.start_date, &request.target_date)?;
+        let priority = lifeos_domain::validate_priority(request.priority)?;
+        self.store.lock().map_err(|_| internal())?.create_project(
+            title,
+            request.parent_project_id,
+            priority,
             start_date,
             target_date,
             operation_id(request.operation_id),
@@ -694,6 +715,63 @@ mod tests {
         })
         .unwrap();
         assert_eq!(core.list_goals().unwrap()[0].title, "Read Arabic books");
+    }
+
+    #[test]
+    fn project_create_nests_under_an_active_project_and_undoes_safely() {
+        let directory = tempdir().unwrap();
+        let database = directory.path().join("projects.db");
+        let core = ApplicationCore::open(&database).unwrap();
+        let parent = core
+            .create_project(CreateProjectRequest {
+                title: "LifeOS V0.1".into(),
+                parent_project_id: None,
+                priority: Some(90),
+                start_date: Some("2026-08-12".into()),
+                target_date: Some("2026-09-12".into()),
+                operation_id: "project-parent".into(),
+            })
+            .unwrap()
+            .data;
+        let child = core
+            .create_project(CreateProjectRequest {
+                title: "Project foundation".into(),
+                parent_project_id: Some(parent.id.clone()),
+                priority: None,
+                start_date: None,
+                target_date: None,
+                operation_id: "project-child".into(),
+            })
+            .unwrap();
+        assert_eq!(
+            child.data.parent_project_id.as_deref(),
+            Some(parent.id.as_str())
+        );
+        assert!(matches!(
+            core.create_project(CreateProjectRequest {
+                title: "Invalid child".into(),
+                parent_project_id: Some("missing-project".into()),
+                priority: None,
+                start_date: None,
+                target_date: None,
+                operation_id: "invalid-project-child".into(),
+            }),
+            Err(AppError::NotFound { .. })
+        ));
+        core.undo(UndoRequest {
+            undo_batch_id: child.undo_batch_id.unwrap(),
+            operation_id: "undo-project-child".into(),
+        })
+        .unwrap();
+        assert_eq!(core.list_projects().unwrap(), vec![parent.clone()]);
+        drop(core);
+        assert_eq!(
+            ApplicationCore::open(&database)
+                .unwrap()
+                .list_projects()
+                .unwrap(),
+            vec![parent]
+        );
     }
 
     #[test]

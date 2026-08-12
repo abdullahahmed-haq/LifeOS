@@ -15,12 +15,14 @@ export const commands = {
 	revokeCredential: (request: RevokeCredentialRequest) => typedError<ActionReceipt<CredentialReference>, AppError>(__TAURI_INVOKE("revoke_credential", { request })),
 	listAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_areas")),
 	listGoals: () => typedError<Goal[], AppError>(__TAURI_INVOKE("list_goals")),
+	listProjects: () => typedError<Project[], AppError>(__TAURI_INVOKE("list_projects")),
 	listArchivedGoals: () => typedError<Goal[], AppError>(__TAURI_INVOKE("list_archived_goals")),
 	listTrashedGoals: () => typedError<Goal[], AppError>(__TAURI_INVOKE("list_trashed_goals")),
 	listTrashedAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_trashed_areas")),
 	listArchivedAreas: () => typedError<Area[], AppError>(__TAURI_INVOKE("list_archived_areas")),
 	createArea: (request: CreateAreaRequest) => typedError<ActionReceipt<Area>, AppError>(__TAURI_INVOKE("create_area", { request })),
 	createGoal: (request: CreateGoalRequest) => typedError<ActionReceipt<Goal>, AppError>(__TAURI_INVOKE("create_goal", { request })),
+	createProject: (request: CreateProjectRequest) => typedError<ActionReceipt<Project>, AppError>(__TAURI_INVOKE("create_project", { request })),
 	updateGoal: (request: UpdateGoalRequest) => typedError<ActionReceipt<Goal>, AppError>(__TAURI_INVOKE("update_goal", { request })),
 	archiveGoal: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Goal>, AppError>(__TAURI_INVOKE("archive_goal", { request })),
 	trashGoal: (request: AreaLifecycleRequest) => typedError<ActionReceipt<Goal>, AppError>(__TAURI_INVOKE("trash_goal", { request })),
@@ -141,6 +143,15 @@ export type CreateGoalRequest = {
 	operationId: string,
 };
 
+export type CreateProjectRequest = {
+	title: string,
+	parentProjectId: string | null,
+	priority: number | null,
+	startDate: string | null,
+	targetDate: string | null,
+	operationId: string,
+};
+
 export type CredentialReference = {
 	id: string,
 	kind: string,
@@ -190,6 +201,21 @@ export type PermissionPolicy = {
 	decision: PermissionDecision,
 	enabled: boolean,
 	revision: number,
+};
+
+export type Project = {
+	id: string,
+	title: string,
+	parentProjectId: string | null,
+	status: string,
+	priority: number | null,
+	startDate: string | null,
+	targetDate: string | null,
+	revision: number,
+	createdAtMs: string,
+	updatedAtMs: string,
+	archivedAtMs: string | null,
+	deletedAtMs: string | null,
 };
 
 export type RevokeCredentialRequest = {

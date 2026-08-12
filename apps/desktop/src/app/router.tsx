@@ -18,6 +18,7 @@ import {
 import { useIntl } from "react-intl";
 import { AreaScreen } from "../features/areas/area-screen";
 import { GoalScreen } from "../features/goals/goal-screen";
+import { ProjectScreen } from "../features/projects/project-screen";
 import { ArchiveScreen } from "../features/lifecycle/archive-screen";
 import { AuditScreen } from "../features/lifecycle/audit-screen";
 import { TrashScreen } from "../features/lifecycle/trash-screen";
@@ -84,7 +85,11 @@ const goalsRoute = createRoute({
   component: GoalScreen,
 });
 const goalDetailRoute = placeholderRoute("goals/$goalId");
-const projectsRoute = placeholderRoute("projects");
+const projectsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "projects",
+  component: ProjectScreen,
+});
 const projectDetailRoute = placeholderRoute("projects/$projectId");
 const tasksRoute = placeholderRoute("tasks");
 const taskDetailRoute = placeholderRoute("tasks/$taskId");

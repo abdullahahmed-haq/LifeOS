@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   updateAppSettings: vi.fn(),
   listAreas: vi.fn(),
   listGoals: vi.fn(),
+  listProjects: vi.fn(),
   listArchivedGoals: vi.fn(),
   listTrashedGoals: vi.fn(),
   listArchivedAreas: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   auditEntries: vi.fn(),
   createArea: vi.fn(),
   createGoal: vi.fn(),
+  createProject: vi.fn(),
   updateGoal: vi.fn(),
   archiveGoal: vi.fn(),
   trashGoal: vi.fn(),
@@ -38,12 +40,14 @@ vi.mock("@lifeos/contracts/bindings", () => ({
     updateAppSettings: mocks.updateAppSettings,
     listAreas: mocks.listAreas,
     listGoals: mocks.listGoals,
+    listProjects: mocks.listProjects,
     listArchivedGoals: mocks.listArchivedGoals,
     listTrashedGoals: mocks.listTrashedGoals,
     listArchivedAreas: mocks.listArchivedAreas,
     listTrashedAreas: mocks.listTrashedAreas,
     createArea: mocks.createArea,
     createGoal: mocks.createGoal,
+    createProject: mocks.createProject,
     updateGoal: mocks.updateGoal,
     archiveGoal: mocks.archiveGoal,
     trashGoal: mocks.trashGoal,
@@ -100,12 +104,14 @@ describe("LifeOS application shell", () => {
     }));
     mocks.listAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.listGoals.mockResolvedValue({ status: "ok", data: [] });
+    mocks.listProjects.mockResolvedValue({ status: "ok", data: [] });
     mocks.listArchivedGoals.mockResolvedValue({ status: "ok", data: [] });
     mocks.listTrashedGoals.mockResolvedValue({ status: "ok", data: [] });
     mocks.listArchivedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.listTrashedAreas.mockResolvedValue({ status: "ok", data: [] });
     mocks.createArea.mockReset();
     mocks.createGoal.mockReset();
+    mocks.createProject.mockReset();
     mocks.updateGoal.mockReset();
     mocks.archiveGoal.mockReset();
     mocks.trashGoal.mockReset();
@@ -459,6 +465,62 @@ describe("LifeOS application shell", () => {
       }),
     );
     expect(await screen.findByRole("status")).toHaveTextContent("Goal created");
+  });
+
+  it("creates a Project through the canonical typed command", async () => {
+    const user = userEvent.setup();
+    mocks.createProject.mockResolvedValue({
+      status: "ok",
+      data: {
+        data: {
+          id: "018f0000-0000-7000-8000-000000000007",
+          title: "LifeOS V0.1",
+          parentProjectId: null,
+          status: "active",
+          priority: 90,
+          startDate: "2026-08-12",
+          targetDate: "2026-09-12",
+          revision: 1,
+          createdAtMs: "1",
+          updatedAtMs: "1",
+          archivedAtMs: null,
+          deletedAtMs: null,
+        },
+        operationId: "project-create",
+        affectedEntityIds: ["018f0000-0000-7000-8000-000000000007"],
+        resultingRevisions: [],
+        domainEventIds: ["project-event"],
+        undoBatchId: "project-undo",
+      },
+    });
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Projects" }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "Project name" }),
+      "LifeOS V0.1",
+    );
+    await user.type(screen.getByRole("spinbutton", { name: "Priority" }), "90");
+    fireEvent.change(screen.getByLabelText("Start date"), {
+      target: { value: "2026-08-12" },
+    });
+    fireEvent.change(screen.getByLabelText("Target date"), {
+      target: { value: "2026-09-12" },
+    });
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+
+    expect(mocks.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "LifeOS V0.1",
+        parentProjectId: null,
+        priority: 90,
+        startDate: "2026-08-12",
+        targetDate: "2026-09-12",
+      }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Project created",
+    );
   });
 
   it("edits and archives a Goal with its canonical revision", async () => {

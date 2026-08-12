@@ -4,9 +4,10 @@ use lifeos_core::ApplicationCore;
 use lifeos_domain::{
     ActionReceipt, AppError, AppSettings, Area, AreaHistoryRequest, AreaLifecycleRequest,
     AreaVersion, AuditEntry, AuditListRequest, CreateAreaRequest, CreateGoalRequest,
-    CredentialReference, Goal, HealthSnapshot, PermissionPolicy, RevokeCredentialRequest,
-    SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest, UndoResult,
-    UpdateAppSettingsRequest, UpdateAreaRequest, UpdateGoalRequest, UpsertPermissionPolicyRequest,
+    CreateProjectRequest, CredentialReference, Goal, HealthSnapshot, PermissionPolicy, Project,
+    RevokeCredentialRequest, SaveCredentialRequest, SearchRequest, SearchResult, UndoRequest,
+    UndoResult, UpdateAppSettingsRequest, UpdateAreaRequest, UpdateGoalRequest,
+    UpsertPermissionPolicyRequest,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -90,6 +91,11 @@ fn list_goals(state: State<'_, AppState>) -> Result<Vec<Goal>, AppError> {
 }
 #[tauri::command]
 #[specta::specta]
+fn list_projects(state: State<'_, AppState>) -> Result<Vec<Project>, AppError> {
+    state.core.list_projects()
+}
+#[tauri::command]
+#[specta::specta]
 fn list_archived_goals(state: State<'_, AppState>) -> Result<Vec<Goal>, AppError> {
     state.core.list_archived_goals()
 }
@@ -123,6 +129,14 @@ fn create_goal(
     request: CreateGoalRequest,
 ) -> Result<ActionReceipt<Goal>, AppError> {
     state.core.create_goal(request)
+}
+#[tauri::command]
+#[specta::specta]
+fn create_project(
+    state: State<'_, AppState>,
+    request: CreateProjectRequest,
+) -> Result<ActionReceipt<Project>, AppError> {
+    state.core.create_project(request)
 }
 #[tauri::command]
 #[specta::specta]
@@ -259,12 +273,14 @@ fn ipc_builder() -> Builder<tauri::Wry> {
             revoke_credential,
             list_areas,
             list_goals,
+            list_projects,
             list_archived_goals,
             list_trashed_goals,
             list_trashed_areas,
             list_archived_areas,
             create_area,
             create_goal,
+            create_project,
             update_goal,
             archive_goal,
             trash_goal,

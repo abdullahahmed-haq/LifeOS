@@ -7,6 +7,7 @@ pub const DEFAULT_USER_ID: &str = "00000000-0000-7000-8000-000000000002";
 pub const DEFAULT_DEVICE_ID: &str = "00000000-0000-7000-8000-000000000003";
 pub const AREA_TYPE_ID: &str = "00000000-0000-7000-8000-000000000004";
 pub const GOAL_TYPE_ID: &str = "00000000-0000-7000-8000-000000000005";
+pub const PROJECT_TYPE_ID: &str = "00000000-0000-7000-8000-000000000006";
 
 #[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -194,6 +195,34 @@ pub struct UpdateGoalRequest {
     pub operation_id: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    pub id: String,
+    pub title: String,
+    pub parent_project_id: Option<String>,
+    pub status: String,
+    pub priority: Option<u8>,
+    pub start_date: Option<String>,
+    pub target_date: Option<String>,
+    pub revision: i32,
+    pub created_at_ms: String,
+    pub updated_at_ms: String,
+    pub archived_at_ms: Option<String>,
+    pub deleted_at_ms: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectRequest {
+    pub title: String,
+    pub parent_project_id: Option<String>,
+    pub priority: Option<u8>,
+    pub start_date: Option<String>,
+    pub target_date: Option<String>,
+    pub operation_id: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct UndoRequest {
@@ -357,6 +386,16 @@ pub fn validate_goal_dates(
         });
     }
     Ok((start_date, target_date))
+}
+
+pub fn validate_priority(priority: Option<u8>) -> Result<Option<u8>, AppError> {
+    if matches!(priority, Some(value) if value > 100) {
+        return Err(AppError::Validation {
+            field: "priority".into(),
+            reason: "must be between 0 and 100".into(),
+        });
+    }
+    Ok(priority)
 }
 
 fn validate_optional_local_date(

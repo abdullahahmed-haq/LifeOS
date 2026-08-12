@@ -7,8 +7,8 @@ use std::{
 use lifeos_domain::{
     AREA_TYPE_ID, ActionReceipt, ActorKind, AppError, AppSettings, Area, AreaVersion, AuditEntry,
     CredentialReference, DEFAULT_DEVICE_ID, DEFAULT_USER_ID, DEFAULT_WORKSPACE_ID, EntityRevision,
-    GOAL_TYPE_ID, Goal, GoalHorizon, HealthSnapshot, PermissionDecision, PermissionPolicy,
-    SearchResult, ThemePreference, UndoResult, UpdateGoalRequest,
+    GOAL_TYPE_ID, Goal, GoalHorizon, HealthSnapshot, PROJECT_TYPE_ID, PermissionDecision,
+    PermissionPolicy, Project, SearchResult, ThemePreference, UndoResult, UpdateGoalRequest,
 };
 use lifeos_search::{fts_query, normalize_for_search};
 use rusqlite::{
@@ -115,12 +115,29 @@ CREATE TABLE goals (
 CREATE INDEX goals_active_horizon_idx ON goals(horizon,status);
 "#;
 
+const PROJECT_SCHEMA: &str = r#"
+INSERT INTO entity_type_definitions VALUES ('00000000-0000-7000-8000-000000000006','00000000-0000-7000-8000-000000000001','project','core','Project','مشروع','Project',0,0);
+CREATE TABLE projects (
+  entity_id TEXT PRIMARY KEY REFERENCES entities(id),
+  parent_project_id TEXT REFERENCES entities(id),
+  status TEXT NOT NULL CHECK(status IN ('planned','active','paused','completed','cancelled','archived')),
+  priority INTEGER CHECK(priority BETWEEN 0 AND 100),
+  sort_rank REAL NOT NULL DEFAULT 0,
+  start_date TEXT,
+  target_date TEXT,
+  completed_at INTEGER,
+  CHECK(target_date IS NULL OR start_date IS NULL OR target_date >= start_date)
+);
+CREATE INDEX projects_parent_idx ON projects(parent_project_id,sort_rank);
+"#;
+
 const MIGRATIONS: &[(i32, &str)] = &[
     (1, INITIAL_SCHEMA),
     (2, FOUNDATION_SETTINGS_SCHEMA),
     (3, SAFETY_POLICY_SCHEMA),
     (4, CREDENTIAL_REFERENCE_SCHEMA),
     (5, GOAL_SCHEMA),
+    (6, PROJECT_SCHEMA),
 ];
 
 pub struct EntityStore {
@@ -566,6 +583,17 @@ impl EntityStore {
         self.list_goals_by_lifecycle("e.archived_at IS NOT NULL AND e.deleted_at IS NULL")
     }
 
+    pub fn list_projects(&self) -> Result<Vec<Project>, AppError> {
+        let mut statement = self.connection.prepare(
+            "SELECT e.id,e.title,p.parent_project_id,p.status,p.priority,p.start_date,p.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN projects p ON p.entity_id=e.id WHERE e.workspace_id=?1 AND e.type_id=?2 AND e.deleted_at IS NULL AND e.archived_at IS NULL ORDER BY p.sort_rank,e.updated_at DESC,e.id DESC",
+        ).map_err(internal)?;
+        statement
+            .query_map(params![DEFAULT_WORKSPACE_ID, PROJECT_TYPE_ID], row_project)
+            .map_err(internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(internal)
+    }
+
     pub fn list_trashed_goals(&self) -> Result<Vec<Goal>, AppError> {
         self.list_goals_by_lifecycle("e.deleted_at IS NOT NULL")
     }
@@ -759,6 +787,79 @@ impl EntityStore {
             domain_event_ids: vec![event_id],
             undo_batch_id: Some(undo_batch_id),
         })
+    }
+
+    pub fn create_project(
+        &mut self,
+        title: String,
+        parent_project_id: Option<String>,
+        priority: Option<u8>,
+        start_date: Option<String>,
+        target_date: Option<String>,
+        operation_id: String,
+    ) -> Result<ActionReceipt<Project>, AppError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        if let Some(parent_project_id) = parent_project_id.as_deref() {
+            get_active_project_in_transaction(&tx, parent_project_id)?.ok_or_else(|| {
+                AppError::NotFound {
+                    entity_id: parent_project_id.to_owned(),
+                }
+            })?;
+        }
+        let now = now();
+        let project = Project {
+            id: Uuid::now_v7().to_string(),
+            title,
+            parent_project_id,
+            status: "active".into(),
+            priority,
+            start_date,
+            target_date,
+            revision: 1,
+            created_at_ms: now.to_string(),
+            updated_at_ms: now.to_string(),
+            archived_at_ms: None,
+            deleted_at_ms: None,
+        };
+        let undo_batch_id = Uuid::now_v7().to_string();
+        let event_id = Uuid::now_v7().to_string();
+        tx.execute(
+            "INSERT INTO entities (id,workspace_id,type_id,title,created_at,updated_at,revision,created_by_type,created_by_id,updated_by_type,updated_by_id,origin_device_id) VALUES (?1,?2,?3,?4,?5,?5,1,'user',?6,'user',?6,?7)",
+            params![project.id, DEFAULT_WORKSPACE_ID, PROJECT_TYPE_ID, project.title, now, DEFAULT_USER_ID, DEFAULT_DEVICE_ID],
+        ).map_err(internal)?;
+        tx.execute(
+            "INSERT INTO projects (entity_id,parent_project_id,status,priority,start_date,target_date) VALUES (?1,?2,'active',?3,?4,?5)",
+            params![project.id, project.parent_project_id, project.priority, project.start_date, project.target_date],
+        ).map_err(internal)?;
+        insert_project_search(&tx, &project)?;
+        write_project_history(
+            &tx,
+            &project,
+            "project.created",
+            &operation_id,
+            &undo_batch_id,
+            &event_id,
+            now,
+        )?;
+        tx.execute(
+            "INSERT INTO undo_operations VALUES (?1,?2,0,'project.trash',?3)",
+            params![
+                Uuid::now_v7().to_string(),
+                undo_batch_id,
+                serde_json::json!({"entityId": project.id, "expectedRevision": 1}).to_string()
+            ],
+        )
+        .map_err(internal)?;
+        tx.commit().map_err(internal)?;
+        Ok(project_receipt(
+            project,
+            operation_id,
+            event_id,
+            undo_batch_id,
+        ))
     }
 
     pub fn update_goal(
@@ -1244,6 +1345,12 @@ impl EntityStore {
             tx.commit().map_err(internal)?;
             return Ok(result);
         }
+        if action_key.starts_with("project.") {
+            let result =
+                undo_project_operation(&tx, batch, operation_id, id, expected, &action_key)?;
+            tx.commit().map_err(internal)?;
+            return Ok(result);
+        }
         let current = get_any_area_in_transaction(&tx, &id)?.ok_or(AppError::NotFound {
             entity_id: id.clone(),
         })?;
@@ -1577,6 +1684,49 @@ fn write_goal_history(
     Ok(())
 }
 
+fn write_project_history(
+    tx: &rusqlite::Transaction<'_>,
+    project: &Project,
+    action: &str,
+    operation: &str,
+    batch: &str,
+    event: &str,
+    now: i64,
+) -> Result<(), AppError> {
+    tx.execute(
+        "INSERT INTO undo_batches VALUES (?1,?2,?3,'available',?4,NULL)",
+        params![batch, DEFAULT_WORKSPACE_ID, operation, now],
+    )
+    .map_err(internal)?;
+    write_project_version(
+        tx,
+        project,
+        "[\"title\",\"parentProjectId\",\"priority\",\"startDate\",\"targetDate\"]",
+        operation,
+        now,
+    )?;
+    tx.execute(
+        "INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,?3,?4,?5,'{}','user',?6,?7,?8)",
+        params![event, DEFAULT_WORKSPACE_ID, action, project.id, project.revision, DEFAULT_USER_ID, operation, now],
+    )
+    .map_err(internal)?;
+    tx.execute(
+        "INSERT INTO audit_events VALUES (?1,?2,?3,'user',?4,?5,?6,?7,?8)",
+        params![
+            Uuid::now_v7().to_string(),
+            DEFAULT_WORKSPACE_ID,
+            action,
+            DEFAULT_USER_ID,
+            serde_json::json!([project.id]).to_string(),
+            operation,
+            batch,
+            now
+        ],
+    )
+    .map_err(internal)?;
+    Ok(())
+}
+
 fn goal_receipt(
     goal: Goal,
     operation_id: String,
@@ -1590,6 +1740,25 @@ fn goal_receipt(
             revision: goal.revision,
         }],
         data: goal,
+        operation_id,
+        domain_event_ids: vec![event_id],
+        undo_batch_id: Some(undo_batch_id),
+    }
+}
+
+fn project_receipt(
+    project: Project,
+    operation_id: String,
+    event_id: String,
+    undo_batch_id: String,
+) -> ActionReceipt<Project> {
+    ActionReceipt {
+        affected_entity_ids: vec![project.id.clone()],
+        resulting_revisions: vec![EntityRevision {
+            entity_id: project.id.clone(),
+            revision: project.revision,
+        }],
+        data: project,
         operation_id,
         domain_event_ids: vec![event_id],
         undo_batch_id: Some(undo_batch_id),
@@ -1618,6 +1787,23 @@ fn insert_goal_search(tx: &rusqlite::Transaction<'_>, goal: &Goal) -> Result<(),
             DEFAULT_WORKSPACE_ID,
             goal.title,
             normalize_for_search(&goal.title)
+        ],
+    )
+    .map_err(internal)?;
+    Ok(())
+}
+
+fn insert_project_search(
+    tx: &rusqlite::Transaction<'_>,
+    project: &Project,
+) -> Result<(), AppError> {
+    tx.execute(
+        "INSERT INTO entity_search VALUES (?1,?2,'project',?3,?4)",
+        params![
+            project.id,
+            DEFAULT_WORKSPACE_ID,
+            project.title,
+            normalize_for_search(&project.title)
         ],
     )
     .map_err(internal)?;
@@ -1771,6 +1957,30 @@ fn write_goal_version(
     Ok(())
 }
 
+fn write_project_version(
+    tx: &rusqlite::Transaction<'_>,
+    project: &Project,
+    changed_fields: &str,
+    operation: &str,
+    now: i64,
+) -> Result<(), AppError> {
+    let snapshot = serde_json::to_string(project).map_err(internal)?;
+    tx.execute(
+        "INSERT INTO entity_versions VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        params![
+            Uuid::now_v7().to_string(),
+            project.id,
+            project.revision,
+            snapshot,
+            changed_fields,
+            operation,
+            now
+        ],
+    )
+    .map_err(internal)?;
+    Ok(())
+}
+
 fn migrate(connection: &mut Connection) -> Result<(), AppError> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL);").map_err(internal)?;
     for (version, sql) in MIGRATIONS {
@@ -1909,6 +2119,32 @@ fn get_active_goal_in_transaction(
         "SELECT e.id,e.title,g.horizon,g.status,g.start_date,g.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN goals g ON g.entity_id=e.id WHERE e.id=?1 AND e.type_id=?2 AND e.deleted_at IS NULL AND e.archived_at IS NULL",
         params![id, GOAL_TYPE_ID],
         row_goal,
+    )
+    .optional()
+    .map_err(internal)
+}
+
+fn get_any_project_in_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+) -> Result<Option<Project>, AppError> {
+    tx.query_row(
+        "SELECT e.id,e.title,p.parent_project_id,p.status,p.priority,p.start_date,p.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN projects p ON p.entity_id=e.id WHERE e.id=?1 AND e.type_id=?2",
+        params![id, PROJECT_TYPE_ID],
+        row_project,
+    )
+    .optional()
+    .map_err(internal)
+}
+
+fn get_active_project_in_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+) -> Result<Option<Project>, AppError> {
+    tx.query_row(
+        "SELECT e.id,e.title,p.parent_project_id,p.status,p.priority,p.start_date,p.target_date,e.revision,e.created_at,e.updated_at,e.archived_at,e.deleted_at FROM entities e JOIN projects p ON p.entity_id=e.id WHERE e.id=?1 AND e.type_id=?2 AND e.deleted_at IS NULL AND e.archived_at IS NULL",
+        params![id, PROJECT_TYPE_ID],
+        row_project,
     )
     .optional()
     .map_err(internal)
@@ -2076,6 +2312,100 @@ fn undo_goal_operation(
     })
 }
 
+fn undo_project_operation(
+    tx: &rusqlite::Transaction<'_>,
+    batch: String,
+    operation_id: String,
+    id: String,
+    expected: i32,
+    action_key: &str,
+) -> Result<ActionReceipt<UndoResult>, AppError> {
+    if action_key != "project.trash" {
+        return Err(AppError::IntegrityFailure {
+            reason: "unsupported undo action".into(),
+        });
+    }
+    let current = get_any_project_in_transaction(tx, &id)?.ok_or(AppError::NotFound {
+        entity_id: id.clone(),
+    })?;
+    if current.revision != expected {
+        return Err(AppError::ConflictRevision {
+            entity_id: id,
+            expected,
+            actual: current.revision,
+        });
+    }
+    let now = now();
+    let revision = expected + 1;
+    let changed = tx
+        .execute(
+            "UPDATE entities SET deleted_at=?1,updated_at=?2,revision=?3,updated_by_type='user',updated_by_id=?4 WHERE id=?5 AND revision=?6",
+            params![now, now, revision, DEFAULT_USER_ID, id, expected],
+        )
+        .map_err(internal)?;
+    if changed != 1 {
+        return Err(AppError::ConflictRevision {
+            entity_id: id,
+            expected,
+            actual: current.revision,
+        });
+    }
+    tx.execute("DELETE FROM entity_search WHERE entity_id=?1", [&id])
+        .map_err(internal)?;
+    let completed_batch = tx
+        .execute(
+            "UPDATE undo_batches SET status='undone',undone_at=?1 WHERE id=?2 AND status='available'",
+            params![now, batch],
+        )
+        .map_err(internal)?;
+    if completed_batch != 1 {
+        return Err(AppError::Validation {
+            field: "undoBatchId".into(),
+            reason: "already undone".into(),
+        });
+    }
+    let reverted = Project {
+        revision,
+        updated_at_ms: now.to_string(),
+        deleted_at_ms: Some(now.to_string()),
+        ..current
+    };
+    write_project_version(tx, &reverted, "[\"deletedAt\"]", &operation_id, now)?;
+    let event_id = Uuid::now_v7().to_string();
+    tx.execute(
+        "INSERT INTO domain_events (id,workspace_id,event_type,aggregate_entity_id,aggregate_revision,payload_json,actor_type,actor_id,operation_id,occurred_at) VALUES (?1,?2,'undo.executed',?3,?4,'{}','user',?5,?6,?7)",
+        params![event_id, DEFAULT_WORKSPACE_ID, id, revision, DEFAULT_USER_ID, operation_id, now],
+    )
+    .map_err(internal)?;
+    tx.execute(
+        "INSERT INTO audit_events VALUES (?1,?2,'undo.execute','user',?3,?4,?5,NULL,?6)",
+        params![
+            Uuid::now_v7().to_string(),
+            DEFAULT_WORKSPACE_ID,
+            DEFAULT_USER_ID,
+            serde_json::json!([id]).to_string(),
+            operation_id,
+            now
+        ],
+    )
+    .map_err(internal)?;
+    Ok(ActionReceipt {
+        data: UndoResult {
+            undone_undo_batch_id: batch,
+            entity_id: id.clone(),
+            revision,
+        },
+        operation_id,
+        affected_entity_ids: vec![id.clone()],
+        resulting_revisions: vec![EntityRevision {
+            entity_id: id,
+            revision,
+        }],
+        domain_event_ids: vec![event_id],
+        undo_batch_id: None,
+    })
+}
+
 fn row_area(row: &rusqlite::Row<'_>) -> rusqlite::Result<Area> {
     Ok(Area {
         id: row.get(0)?,
@@ -2115,6 +2445,27 @@ fn row_goal(row: &rusqlite::Row<'_>) -> rusqlite::Result<Goal> {
         archived_at_ms: row.get::<_, Option<i64>>(9)?.map(|value| value.to_string()),
         deleted_at_ms: row
             .get::<_, Option<i64>>(10)?
+            .map(|value| value.to_string()),
+    })
+}
+
+fn row_project(row: &rusqlite::Row<'_>) -> rusqlite::Result<Project> {
+    Ok(Project {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        parent_project_id: row.get(2)?,
+        status: row.get(3)?,
+        priority: row.get(4)?,
+        start_date: row.get(5)?,
+        target_date: row.get(6)?,
+        revision: row.get(7)?,
+        created_at_ms: row.get::<_, i64>(8)?.to_string(),
+        updated_at_ms: row.get::<_, i64>(9)?.to_string(),
+        archived_at_ms: row
+            .get::<_, Option<i64>>(10)?
+            .map(|value| value.to_string()),
+        deleted_at_ms: row
+            .get::<_, Option<i64>>(11)?
             .map(|value| value.to_string()),
     })
 }

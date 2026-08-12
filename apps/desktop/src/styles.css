@@ -193,7 +193,8 @@ body {
   padding: 10px;
   font: inherit;
 }
-.goal-create-card select {
+.goal-create-card select,
+.project-create-card select {
   min-block-size: 42px;
   border: 1px solid #b7c7c5;
   border-radius: 9px;
@@ -201,6 +202,9 @@ body {
   background: #fff;
   color: #273743;
   font: inherit;
+}
+.project-create-card {
+  flex-wrap: wrap;
 }
 .area-grid {
   display: grid;

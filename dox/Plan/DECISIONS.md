@@ -116,6 +116,29 @@ DOX controls behavior, data, and security. UI V001 would control visual/interact
 
 Status: accepted
 
+Goal edit, archive, Trash, restore, and undo use the same Core-owned revision,
+version, audit, domain-event, and inverse-operation pattern proven by Areas.
+The Goal schema remains migration 5 and is append-only; lifecycle state lives
+on the common entity record so it remains consistent with the shared archive
+and Trash posture.
+
+## D-039 — Project creation begins the structural hierarchy spine
+
+Status: accepted for the first Project slice
+
+Migration 6 introduces the canonical Project table. A Project has at most one
+optional `parent_project_id`, and Core validates that a requested parent is an
+active Project in the same canonical database before the transaction creates
+the child. Creation cannot introduce a cycle because the new Project does not
+yet exist. Project creation, its lexical projection, event, audit entry,
+version snapshot, receipt, and reversible typed undo are atomic.
+
+This slice deliberately does not permit moving an existing Project: that
+operation needs a bounded recursive cycle check and revision checks for both
+the moved Project and affected parents, which will arrive in the next Project
+hierarchy slice. Goals and Areas are not structural parents; their links remain
+future semantic RelationGraph relations.
+
 Use a pnpm workspace plus Cargo workspace with `apps/desktop`, deep Rust modules under `crates`, and shared TypeScript packages under `packages`. The Tauri host remains a thin adapter over `ApplicationCore`. The user-proposed structure is refined by separating domain, Core orchestration, store, search, safety, vault sync, and test support so dependencies point inward without proliferating pass-through layers.
 
 ## D-003 — Rust-to-TypeScript contracts

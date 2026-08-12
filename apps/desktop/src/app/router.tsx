@@ -36,15 +36,10 @@ const homeRoute = createRoute({
   component: RoutePlaceholder,
   staticData: { messageId: "route.home" },
 });
-const todayRoute = createRoute({
+const areasAliasRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "today",
-  component: RoutePlaceholder,
-});
-const projectsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "projects",
-  component: RoutePlaceholder,
+  path: "areas",
+  component: AreaScreen,
 });
 const trashRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -71,29 +66,115 @@ const settingsRoute = createRoute({
   path: "settings/general",
   component: GeneralSettingsScreen,
 });
-const integrationsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "integrations/$section",
-  component: RoutePlaceholder,
-});
-const sectionRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "$section",
-  component: RoutePlaceholder,
-});
+
+function placeholderRoute<const TPath extends string>(path: TPath) {
+  return createRoute({
+    getParentRoute: () => rootRoute,
+    path,
+    component: RoutePlaceholder,
+  });
+}
+
+const onboardingRoute = placeholderRoute("onboarding");
+const todayRoute = placeholderRoute("today");
+const goalsRoute = placeholderRoute("goals");
+const goalDetailRoute = placeholderRoute("goals/$goalId");
+const projectsRoute = placeholderRoute("projects");
+const projectDetailRoute = placeholderRoute("projects/$projectId");
+const tasksRoute = placeholderRoute("tasks");
+const taskDetailRoute = placeholderRoute("tasks/$taskId");
+const skillsRoute = placeholderRoute("skills");
+const skillDetailRoute = placeholderRoute("skills/$skillId");
+const hobbiesRoute = placeholderRoute("hobbies");
+const hobbyDetailRoute = placeholderRoute("hobbies/$hobbyId");
+const habitsRoute = placeholderRoute("habits");
+const calendarRoute = placeholderRoute("calendar");
+const eventDetailRoute = placeholderRoute("events/$eventId");
+const focusRoute = placeholderRoute("focus");
+const focusHistoryRoute = placeholderRoute("focus/history");
+const peopleRoute = placeholderRoute("people");
+const peopleDetailRoute = placeholderRoute("people/$personId");
+const requestsRoute = placeholderRoute("requests");
+const locationsRoute = placeholderRoute("locations");
+const knowledgeRoute = placeholderRoute("knowledge");
+const knowledgeDetailRoute = placeholderRoute("knowledge/$noteId");
+const knowledgeGraphRoute = placeholderRoute("knowledge/graph");
+const reportsRoute = placeholderRoute("reports");
+const dailyReviewRoute = placeholderRoute("reviews/daily");
+const weeklyReviewRoute = placeholderRoute("reviews/weekly");
+const aiRoute = placeholderRoute("ai");
+const automationsRoute = placeholderRoute("automations");
+const templatesRoute = placeholderRoute("templates");
+const customTypesRoute = placeholderRoute("custom-types");
+const customFieldsRoute = placeholderRoute("custom-fields");
+const notificationsRoute = placeholderRoute("notifications");
+const importExportRoute = placeholderRoute("import-export");
+const settingsPlanningRoute = placeholderRoute("settings/planning");
+const settingsProgressRoute = placeholderRoute("settings/progress");
+const settingsAppearanceRoute = placeholderRoute("settings/appearance");
+const settingsAiRoute = placeholderRoute("settings/ai");
+const settingsAiPermissionsRoute = placeholderRoute("settings/ai-permissions");
+const settingsIntegrationsRoute = placeholderRoute("settings/integrations");
+const settingsAutomationsRoute = placeholderRoute("settings/automations");
+const settingsDataRoute = placeholderRoute("settings/data");
+const settingsAdvancedRoute = placeholderRoute("settings/advanced");
+const obsidianIntegrationRoute = placeholderRoute("integrations/obsidian");
+const mcpIntegrationRoute = placeholderRoute("integrations/mcp");
 
 const routeTree = rootRoute.addChildren([
   areasRoute,
+  areasAliasRoute,
+  onboardingRoute,
   homeRoute,
   todayRoute,
+  goalsRoute,
+  goalDetailRoute,
   projectsRoute,
+  projectDetailRoute,
+  tasksRoute,
+  taskDetailRoute,
+  skillsRoute,
+  skillDetailRoute,
+  hobbiesRoute,
+  hobbyDetailRoute,
+  habitsRoute,
+  calendarRoute,
+  eventDetailRoute,
+  focusRoute,
+  focusHistoryRoute,
+  peopleRoute,
+  peopleDetailRoute,
+  requestsRoute,
+  locationsRoute,
+  knowledgeRoute,
+  knowledgeDetailRoute,
+  knowledgeGraphRoute,
+  reportsRoute,
+  dailyReviewRoute,
+  weeklyReviewRoute,
+  aiRoute,
+  automationsRoute,
+  templatesRoute,
+  customTypesRoute,
+  customFieldsRoute,
+  notificationsRoute,
   archiveRoute,
   auditRoute,
   versionHistoryRoute,
   trashRoute,
   settingsRoute,
-  integrationsRoute,
-  sectionRoute,
+  importExportRoute,
+  settingsPlanningRoute,
+  settingsProgressRoute,
+  settingsAppearanceRoute,
+  settingsAiRoute,
+  settingsAiPermissionsRoute,
+  settingsIntegrationsRoute,
+  settingsAutomationsRoute,
+  settingsDataRoute,
+  settingsAdvancedRoute,
+  obsidianIntegrationRoute,
+  mcpIntegrationRoute,
 ]);
 const router = createRouter({ routeTree, defaultPreload: "intent" });
 
